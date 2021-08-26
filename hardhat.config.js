@@ -1,4 +1,9 @@
+require("dotenv").config();
 require("@nomiclabs/hardhat-waffle");
+require("@nomiclabs/hardhat-etherscan");
+require("hardhat-deploy");
+require("hardhat-deploy-ethers");
+require("@nomiclabs/hardhat-solhint");
 
 // This is a sample Hardhat task. To learn how to create your own go to
 // https://hardhat.org/guides/create-task.html
@@ -17,5 +22,37 @@ task("accounts", "Prints the list of accounts", async (taskArgs, hre) => {
  * @type import('hardhat/config').HardhatUserConfig
  */
 module.exports = {
-  solidity: "0.8.4",
+  networks: {
+    hardhat: {
+      forking: {
+        url: process.env.ALCHEMY_URL_MAINNET,
+        blockNumber: 12997854//12944648,
+      },
+    },
+  },
+  // mainnet: {
+  //   url: process.env.ALCHEMY_URL_MAINNET,
+  //   accounts: [`0x${process.env.PRIVATE_KEY}`],
+  // },
+  // kovan: {
+  //   url: process.env.ALCHEMY_URL_KOVAN,
+  //   accounts: [`0x${process.env.PRIVATE_KEY}`],
+  // },
+  // rinkeby: {
+  //   url: process.env.ALCHEMY_URL_RINKEBY,
+  //   accounts: [`0x${process.env.PRIVATE_KEY}`],
+  // },
+  solidity: {
+    version: "0.7.6",
+    settings: {
+      optimizer: {
+        enabled: true,
+        runs: 500,
+      },
+    },
+  },
+  mocha: {
+    timeout: 700000000
+  }
+
 };
