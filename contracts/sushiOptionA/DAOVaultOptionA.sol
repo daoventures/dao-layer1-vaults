@@ -474,7 +474,7 @@ contract DAOVaultOptionA is Initializable, ERC20Upgradeable, ReentrancyGuardUpgr
     }
 
     function _adjustDecimals(uint _amount, uint _sourceDecimals) internal pure returns(uint) { 
-         uint _newDecimal = 18 - _sourceDecimals;
+         uint _newDecimal = 18 .sub( _sourceDecimals);
          return _amount * 10 ** _newDecimal;
      }
 
@@ -498,7 +498,7 @@ contract DAOVaultOptionA is Initializable, ERC20Upgradeable, ReentrancyGuardUpgr
 
     function getLpTokenPriceInUSD() internal view returns (uint) {
         uint ETHPriceInUSD = uint(IChainlink(0x5f4eC3Df9cbd43714FE2740f5E3616155c5b8419).latestAnswer()).mul(1e10); // 8 decimals
-        return getlpTokenPriceInETH() * ETHPriceInUSD / 1e18;
+        return getlpTokenPriceInETH() .mul(ETHPriceInUSD) / 1e18;
     }
 
     function getAllPoolInETH() public view returns (uint) {
@@ -513,8 +513,8 @@ contract DAOVaultOptionA is Initializable, ERC20Upgradeable, ReentrancyGuardUpgr
         uint _totalSupply = totalSupply();
         if (_totalSupply == 0) return 0;
         return inUSD == true ?
-            getAllPoolInUSD() * 1e18 / _totalSupply :
-            getAllPool() * 1e18 / _totalSupply;
+            getAllPoolInUSD() .mul( 1e18).div( _totalSupply) :
+            getAllPool() .mul(1e18) .div(_totalSupply);
     }
 }
 
