@@ -97,10 +97,10 @@ contract uniVault is ERC20Upgradeable, ReentrancyGuardUpgradeable {
         uint _shares;
         if(totalSupply() == 0) {
             _shares = _liquidityAdded;
-            totalLiquidity += _liquidityAdded;
+            totalLiquidity = totalLiquidity.add(_liquidityAdded);
         } else {            
-            _shares = _liquidityAdded * totalSupply() / totalLiquidity;
-            totalLiquidity += _liquidityAdded;
+            _shares = _liquidityAdded.mul(totalSupply()).div(totalLiquidity);
+            totalLiquidity = totalLiquidity.add(_liquidityAdded);
         }
 
         _mint(msg.sender, _shares);
@@ -109,8 +109,8 @@ contract uniVault is ERC20Upgradeable, ReentrancyGuardUpgradeable {
     function withdraw(uint _shares) external nonReentrant returns (uint _amount0, uint _amount1){
         require(_shares > 0, "invalid amount");
 
-        uint _liquidity = totalLiquidity * _shares / totalSupply();
-        totalLiquidity = totalLiquidity - _liquidity;
+        uint _liquidity = totalLiquidity.mul (_shares) .div( totalSupply());
+        totalLiquidity = totalLiquidity.sub(_liquidity);
         
         INonfungiblePositionManager.DecreaseLiquidityParams memory params =
             INonfungiblePositionManager.DecreaseLiquidityParams({
@@ -146,7 +146,7 @@ contract uniVault is ERC20Upgradeable, ReentrancyGuardUpgradeable {
             
             (uint _amt0, uint _amt1 ) = _available();
             uint _liquidityAdded = _addLiquidity(_amt0, _amt1);
-            totalLiquidity += _liquidityAdded;        
+            totalLiquidity = totalLiquidity.add(_liquidityAdded);        
             _transferFee();
         }
         
@@ -305,14 +305,14 @@ contract uniVault is ERC20Upgradeable, ReentrancyGuardUpgradeable {
     function _calcFee(uint _amount0, uint _amount1, uint _type) internal returns (uint _amt0AfterFee, uint _amt1AfterFee){
         //both tokens added as liquidity
         uint _half = _type == 0 ? feePerc/2 : yieldFee/2;
-        uint _fee0 = _amount0*_half/10000;
-        uint _fee1 = _amount1*_half/10000;
+        uint _fee0 = _amount0.mul(_half).div(10000);
+        uint _fee1 = _amount1.mul(_half).div(10000);
         
-        _feeToken0 = _feeToken0+_fee0;
-        _feeToken1 = _feeToken1+_fee1;
+        _feeToken0 = _feeToken0.add(_fee0);
+        _feeToken1 = _feeToken1.add(_fee1);
 
-        _amt0AfterFee = _amount0 - _fee0;
-        _amt1AfterFee = _amount1 - _fee1;
+        _amt0AfterFee = _amount0 .sub (_fee0);
+        _amt1AfterFee = _amount1 .sub (_fee1);
 
     }
 
@@ -339,16 +339,16 @@ contract uniVault is ERC20Upgradeable, ReentrancyGuardUpgradeable {
     }
 
     function getAllPoolInUSD() public view returns (uint) {
-        uint ETHPriceInUSD = uint(IChainlink(0x5f4eC3Df9cbd43714FE2740f5E3616155c5b8419).latestAnswer()) * 1e10; // 8 decimals
-        return getAllPoolInETH() * ETHPriceInUSD / 1e18;
+        uint ETHPriceInUSD = uint(IChainlink(0x5f4eC3Df9cbd43714FE2740f5E3616155c5b8419).latestAnswer()).mul(1e10); // 8 decimals
+        return getAllPoolInETH() .mul (ETHPriceInUSD) .div (1e18);
     }
     
     function getPricePerFullShare(bool inUSD) external view returns (uint) {
         uint _totalSupply = totalSupply();
         if (_totalSupply == 0) return 0;
         return inUSD == true ?
-            getAllPoolInUSD() * 1e18 / _totalSupply :
-            getAllPoolInETH() * 1e18 / _totalSupply;
+            getAllPoolInUSD() .mul (1e18) .div (_totalSupply) :
+            getAllPoolInETH() .mul (1e18) .div (_totalSupply);
     }
     
 
