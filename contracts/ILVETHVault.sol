@@ -75,11 +75,11 @@ contract ILVETHVault is Initializable, ERC20Upgradeable, OwnableUpgradeable, Ree
     IIlluvium constant ilvPool = IIlluvium(0x25121EDDf746c884ddE4619b573A7B10714E2a36);
     IRouter constant sushiRouter = IRouter(0xd9e1cE17f2641f24aE83637ab66a2cca9C378B9F);
 
+    uint public yieldFeePerc;
     uint public vestedILV;
     uint public availableID;
     mapping(address => bool) public isWhitelisted;
     mapping(address => uint) private depositedBlock;
-    uint public fees;
 
     address public admin;
     address public treasuryWallet;
@@ -89,12 +89,12 @@ contract ILVETHVault is Initializable, ERC20Upgradeable, OwnableUpgradeable, Ree
     event Deposit(address indexed caller, uint amtDeposited, uint sharesMinted);
     event Withdraw(address indexed caller, uint amtWithdrawed, uint sharesBurned);
     event Invest(uint amtInvested);
-    event TransferredOutFees(uint fees);
     event Harvest(uint amtHarvestedVestedILV);
     event Unlock(uint amtUnlockedILV);
     event Compound(uint amtTokenCompounded);
     event EmergencyWithdraw(uint amtTokenWithdrawed);
     event SetWhitelistAddress(address indexed _address, bool indexed status);
+    event SetYieldFeePerc(uint _yieldFeePerc);
     event SetTreasuryWallet(address indexed treasuryWallet);
     event SetCommunityWallet(address indexed communityWallet);
     event SetAdminWallet(address indexed admin);
@@ -105,10 +105,19 @@ contract ILVETHVault is Initializable, ERC20Upgradeable, OwnableUpgradeable, Ree
         _;
     }
 
-    function initialize(string calldata name, string calldata ticker) external initializer {
+    function initialize(
+            string calldata name, string calldata ticker,
+            address _treasuryWallet, address _communityWallet, address _strategist, address _admin
+        ) external initializer {
         // __ERC20_init("DAO L1 Sushi ILV-ETH", "daoSushiILV");
         __ERC20_init(name, ticker);
         __Ownable_init();
+
+        treasuryWallet = _treasuryWallet;
+        communityWallet = _communityWallet;
+        strategist = _strategist;
+        admin = _admin;
+        yieldFeePerc = 2000;
 
         ILV.safeApprove(address(sushiRouter), type(uint).max);
         WETH.safeApprove(address(sushiRouter), type(uint).max);
@@ -124,9 +133,13 @@ contract ILVETHVault is Initializable, ERC20Upgradeable, OwnableUpgradeable, Ree
         depositedBlock[msg.sender] = block.number;
 
         if (!isWhitelisted[msg.sender]) {
-            uint fee = amount * 1 / 10;
-            amount = amount - fee;
-            fees = fees + fee;
+            uint fees = amount * 1 / 10;
+            amount = amount - fees;
+
+            uint fee = fees * 2 / 5; // 40%
+            ILVETH.safeTransfer(treasuryWallet, fee);
+            ILVETH.safeTransfer(communityWallet, fee);
+            ILVETH.safeTransfer(strategist, fees - fee - fee);
         }
 
         uint _totalSupply = totalSupply();
@@ -160,14 +173,6 @@ contract ILVETHVault is Initializable, ERC20Upgradeable, OwnableUpgradeable, Ree
     }
 
     function invest() public onlyOwnerOrAdmin whenNotPaused {
-        if (fees > 0) {
-            uint fee = fees * 2 / 5; // 40%
-            ILVETH.safeTransfer(treasuryWallet, fee);
-            ILVETH.safeTransfer(communityWallet, fee);
-            ILVETH.safeTransfer(strategist, fees - fee - fee);
-            emit TransferredOutFees(fees);
-        }
-
         uint _vestedILV = ilvEthPool.pendingYieldRewards(address(this));
         vestedILV = vestedILV + _vestedILV;
         uint ILVETHAmt = ILVETH.balanceOf(address(this));
@@ -176,21 +181,36 @@ contract ILVETHVault is Initializable, ERC20Upgradeable, OwnableUpgradeable, Ree
         emit Invest(ILVETHAmt);
     }
 
-    function harvest() external {
+    function harvest() external onlyOwnerOrAdmin {
         uint _vestedILV = ilvEthPool.pendingYieldRewards(address(this));
         ilvEthPool.processRewards(false);
         vestedILV = vestedILV + _vestedILV;
         emit Harvest(_vestedILV);
     }
 
-    function unlock(uint index) external {
+    function unlock(uint index) external onlyOwnerOrAdmin {
         IIlluvium.Deposit memory _deposit = ilvPool.getDeposit(address(this), index);
         vestedILV = vestedILV - _deposit.tokenAmount;
         ilvPool.unstake(index, _deposit.tokenAmount, false);
         emit Unlock(_deposit.tokenAmount);
+
+        uint yieldFeeInILV = _deposit.tokenAmount * yieldFeePerc / 10000;
+        uint yieldFeeInWETH = (sushiRouter.swapExactTokensForTokens(
+            yieldFeeInILV, 0, getPath(address(ILV), address(WETH)), address(this), block.timestamp
+        ))[1];
+        WETH.withdraw(yieldFeeInWETH);
+        uint256 yieldFeeInETH = address(this).balance * 2 / 5;
+        (bool _a,) = admin.call{value: yieldFeeInETH}(""); // 40%
+        require(_a, "Fee transfer failed");
+        (bool _t,) = communityWallet.call{value: yieldFeeInETH}(""); // 40%
+        require(_t, "Fee transfer failed");
+        (bool _s,) = strategist.call{value: (address(this).balance)}(""); // 20%
+        require(_s, "Fee transfer failed");
     }
 
-    function compound() external whenNotPaused {
+    receive() external payable {}
+
+    function compound() external onlyOwnerOrAdmin whenNotPaused {
         uint ILVAmtHalf = ILV.balanceOf(address(this)) / 2;
         uint WETHAmt = (sushiRouter.swapExactTokensForTokens(ILVAmtHalf, 0, getPath(address(ILV), address(WETH)), address(this), block.timestamp))[1];
         (,, uint lpTokenAmt) = sushiRouter.addLiquidity(address(ILV), address(WETH), ILVAmtHalf, WETHAmt, 0, 0, address(this), block.timestamp);
@@ -226,6 +246,11 @@ contract ILVETHVault is Initializable, ERC20Upgradeable, OwnableUpgradeable, Ree
     function setWhitelistAddress(address addr, bool status) external onlyOwnerOrAdmin {
         isWhitelisted[addr] = status;
         emit SetWhitelistAddress(addr, status);
+    }
+
+    function setYieldFeePerc(uint _yieldFeePerc) external onlyOwnerOrAdmin {
+        yieldFeePerc = _yieldFeePerc;
+        emit SetYieldFeePerc(_yieldFeePerc);
     }
 
     function setTreasuryWallet(address _treasuryWallet) external onlyOwner {
