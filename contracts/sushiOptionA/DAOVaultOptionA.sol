@@ -1,3 +1,4 @@
+//SPDX-License-Identifier: MIT
 pragma solidity 0.7.6;
 
 import "@openzeppelin/contracts-upgradeable/token/ERC20/IERC20Upgradeable.sol";
@@ -9,6 +10,10 @@ import "@openzeppelin/contracts-upgradeable/utils/ReentrancyGuardUpgradeable.sol
 import "../../interfaces/IUniswapV2Router02.sol";
 import "../../interfaces/IUniswapV2Pair.sol";
 import "../../interfaces/IMasterChef.sol";
+
+interface IChainlink {
+    function latestAnswer() external view returns (int256);
+}
 
 interface Factory {
     function owner() external view returns (address);
@@ -42,6 +47,9 @@ contract DAOVaultOptionA is Initializable, ERC20Upgradeable, ReentrancyGuardUpgr
     uint private masterChefVersion;
     uint public yieldFee;
     uint public depositFee;
+
+    uint private token0Decimal;
+    uint private token1Decimal;
 
     bool isEmergency;
 
@@ -93,6 +101,9 @@ contract DAOVaultOptionA is Initializable, ERC20Upgradeable, ReentrancyGuardUpgr
         treasuryWallet = _treasuryWallet;
         strategist = _strategist;
         admin = _admin;
+
+        token0Decimal = ERC20Upgradeable(address(_token0)).decimals();//18;
+        token1Decimal =  ERC20Upgradeable(address(_token1)).decimals();//6;
 
         factory = Factory(msg.sender);
 
@@ -319,9 +330,18 @@ contract DAOVaultOptionA is Initializable, ERC20Upgradeable, ReentrancyGuardUpgr
                 path[3] = _targetToken;
             }
         } else {
-            path = new address[](2);
-            path[0] = address(SUSHI);
-            path[1] = _targetToken;
+
+            if(_targetToken != address(WETH)) {
+                path = new address[](3);
+                path[0] = address(SUSHI);
+                path[1] = address(WETH);
+                path[2] = _targetToken;
+            } else {
+                path = new address[](2);
+                path[0] = address(SUSHI);
+                path[1] = _targetToken;
+            }
+
         }
 
     }
@@ -438,42 +458,55 @@ contract DAOVaultOptionA is Initializable, ERC20Upgradeable, ReentrancyGuardUpgr
 
     function getAllPool() public view returns (uint) {
         (uint balanceInMasterChef, ) = MasterChef.userInfo(poolId,address(this));
-        return lpToken.balancef(address(this)).add(balanceInMasterChef);
+        return lpToken.balanceOf(address(this)).add(balanceInMasterChef);
     }
 
+    ///@dev returns reserve values in 18 decimals. _reserve0 will always be token0 of this contract
+    function _getReserves() internal view returns(uint _reserve0, uint _reserve1){ 
+        (_reserve0, _reserve1, ) = lpPair.getReserves();
+
+        if(address(token0) != lpPair.token0()) {
+            (_reserve0, _reserve1) = (_reserve1, _reserve0);
+        }
+
+        _reserve0 = _adjustDecimals(_reserve0, token0Decimal);
+        _reserve1 = _adjustDecimals(_reserve1, token1Decimal);
+    }
+
+    function _adjustDecimals(uint _amount, uint _sourceDecimals) internal pure returns(uint) { 
+         uint _newDecimal = 18 - _sourceDecimals;
+         return _amount * 10 ** _newDecimal;
+     }
+
+    //returns price of lpToken in terms of ETH (18 decimals)
     function getlpTokenPriceInETH() internal view returns (uint) {
-        uint token1PriceInETH = (sushiRouter.getAmountsOut(1e18, getPathToETH(address(token1), address(WETH))))[1];
-        (uint112 reserve0, uint112 reserve1,) = lpPair.getReserves();
-        
+        uint token1PriceInETH = (SushiRouter.getAmountsOut(10**(token1Decimal), getPathToETH(address(token1))))[1];
+        (uint reserve0, uint reserve1) = _getReserves();
         uint token0PriceInETH;
 
         if(token0 != WETH) {
-            token0PriceInETH = (sushiRouter.getAmountsOut(1e18, getPathToETH(address(token0), address(WETH))))[1];
+            token0PriceInETH = (SushiRouter.getAmountsOut(10**(token0Decimal), getPathToETH(address(token0))))[1];
         }
 
         //reserve1 + reserve0
-        uint reserveInETH = token0 == WETH ? (reserve1.mul(token1PriceInETH).div(1e18)).add(reserve0) :
-            ((reserve1.mul(token1PriceInETH)).add((reserve0.mul(token0PriceInETH)))).div(1e18) ; // for BTC-token pairs
-        
+        uint reserveInETH = token0 == WETH ? (reserve1.mul(token1PriceInETH)).add(reserve0.mul(1e18)) :
+
+            (reserve1.mul(token1PriceInETH)).add((reserve0.mul(token0PriceInETH))) ; // for BTC-token pairs
+
         return reserveInETH.div(lpPair.totalSupply());
-        //TODO check decimals
-        // uint totalReserveInETH = reserveILV * ILVPriceInETH / 1e18 + reserveWETH;
-        // return totalReserveInETH * 1e18 / ILVETH.totalSupply();
     }
 
     function getLpTokenPriceInUSD() internal view returns (uint) {
-        uint ETHPriceInUSD = uint(IChainlink(0x5f4eC3Df9cbd43714FE2740f5E3616155c5b8419).latestAnswer()); // 8 decimals
-        return getlpTokenPriceInETH() * ETHPriceInUSD / 1e8;
-        //TODO check decimals
+        uint ETHPriceInUSD = uint(IChainlink(0x5f4eC3Df9cbd43714FE2740f5E3616155c5b8419).latestAnswer()).mul(1e10); // 8 decimals
+        return getlpTokenPriceInETH() * ETHPriceInUSD / 1e18;
     }
 
     function getAllPoolInETH() public view returns (uint) {
         return getAllPool().mul(getlpTokenPriceInETH()).div(1e18);
     }
-
+    ///@notice returns value in pool in USD (18 decimals)
     function getAllPoolInUSD() public view returns (uint) {
-        //TODO check decimals
-        getAllPool().mul(getlpTokenPriceInETH()).div(1e18);
+        return getAllPool().mul(getLpTokenPriceInUSD()).div(1e18);
     }
 
     function getPricePerFullShare(bool inUSD) external view returns (uint) {

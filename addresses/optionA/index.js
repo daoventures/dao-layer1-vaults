@@ -9,9 +9,13 @@ module.exports = {
             ALCX: "0xdBdb4d16EdA451D0503b854CF79D55697F90c8DF",
             WBTC: "0x2260FAC5E5542a773Aa44fBCfeDf7C193bc2C599",
             IBTC: "0xc4E15973E6fF2A35cC804c2CF9D2a1b817a8b40F",
+            SLP:"0xCC8Fa225D80b9c7D42F96e9570156c65D6cAAa25",
+            AXS:"0xBB0E17EF65F82Ab018d8EDd776e8DD940327B28b",
             ETHUSDCLP: "0x397FF1542f962076d0BFE58eA045FfA2d347ACa0",
             ETHALCXLP: "0xC3f279090a47e80990Fe3a9c30d24Cb117EF91a8",
-            WBTCIBTCLP: "0x18d98D452072Ac2EB7b74ce3DB723374360539f1"
+            WBTCIBTCLP: "0x18d98D452072Ac2EB7b74ce3DB723374360539f1",
+            ETHAXSLP:"0x0C365789DbBb94A29F8720dc465554c587e897dB",
+            ETHSLPLP:"0x8597fa0773888107E2867D36dd87Fe5bAFeAb328"
         },
         SUSHI: {
             router: "0xd9e1cE17f2641f24aE83637ab66a2cca9C378B9F",
@@ -30,7 +34,9 @@ module.exports = {
         poolIDs: {
             ETHUSDC: 1,
             ETHALCX: 0,
-            WBTCIBTC: 235
+            WBTCIBTC: 235,
+            ETHAXS: 231,
+            ETHSLP: 290
         }
     }
 
