@@ -40,6 +40,10 @@ interface IRouter {
         uint deadline
     ) external returns (uint[] memory amounts);
 
+    function swapExactTokensForETH(uint amountIn, uint amountOutMin, address[] calldata path, address to, uint deadline)
+        external
+    returns (uint[] memory amounts);
+
     function addLiquidity(
         address tokenA,
         address tokenB,
@@ -109,7 +113,6 @@ contract ILVETHVault is Initializable, ERC20Upgradeable, OwnableUpgradeable, Ree
             string calldata name, string calldata ticker,
             address _treasuryWallet, address _communityWallet, address _strategist, address _admin
         ) external initializer {
-        // __ERC20_init("DAO L1 Sushi ILV-ETH", "daoSushiILV");
         __ERC20_init(name, ticker);
         __Ownable_init();
 
@@ -151,7 +154,7 @@ contract ILVETHVault is Initializable, ERC20Upgradeable, OwnableUpgradeable, Ree
     function withdraw(uint share) external nonReentrant returns (uint withdrawAmt) {
         require(share > 0, "Share must > 0");
         require(share <= balanceOf(msg.sender), "Not enough shares to withdraw");
-        require(depositedBlock[msg.sender] != block.number);
+        require(depositedBlock[msg.sender] != block.number, "Withdraw within same block");
 
         uint ILVETHBal = ILVETH.balanceOf(address(this));
         uint ILVETHAmt = ilvEthPool.balanceOf(address(this)) + ILVETHBal;
@@ -195,14 +198,11 @@ contract ILVETHVault is Initializable, ERC20Upgradeable, OwnableUpgradeable, Ree
         emit Unlock(_deposit.tokenAmount);
 
         uint yieldFeeInILV = _deposit.tokenAmount * yieldFeePerc / 10000;
-        uint yieldFeeInWETH = (sushiRouter.swapExactTokensForTokens(
-            yieldFeeInILV, 0, getPath(address(ILV), address(WETH)), address(this), block.timestamp
-        ))[1];
-        WETH.withdraw(yieldFeeInWETH);
-        uint256 yieldFeeInETH = address(this).balance * 2 / 5;
-        (bool _a,) = admin.call{value: yieldFeeInETH}(""); // 40%
+        sushiRouter.swapExactTokensForETH(yieldFeeInILV, 0, getPath(address(ILV), address(WETH)), address(this), block.timestamp);
+        uint256 portionETH = address(this).balance * 2 / 5;
+        (bool _a,) = admin.call{value: portionETH}(""); // 40%
         require(_a, "Fee transfer failed");
-        (bool _t,) = communityWallet.call{value: yieldFeeInETH}(""); // 40%
+        (bool _t,) = communityWallet.call{value: portionETH}(""); // 40%
         require(_t, "Fee transfer failed");
         (bool _s,) = strategist.call{value: (address(this).balance)}(""); // 20%
         require(_s, "Fee transfer failed");
