@@ -1,11 +1,13 @@
 //SPDX-License-Identifier: MIT
-pragma solidity 0.7.6;
+pragma solidity 0.8.7;
 
 import "@openzeppelin/contracts-upgradeable/token/ERC20/IERC20Upgradeable.sol";
 import "@openzeppelin/contracts-upgradeable/token/ERC20/ERC20Upgradeable.sol";
-import "@openzeppelin/contracts-upgradeable/token/ERC20/SafeERC20Upgradeable.sol";
-import "@openzeppelin/contracts-upgradeable/math/SafeMathUpgradeable.sol";
-import "@openzeppelin/contracts-upgradeable/utils/ReentrancyGuardUpgradeable.sol";
+import "@openzeppelin/contracts-upgradeable/token/ERC20/utils/SafeERC20Upgradeable.sol";
+import "@openzeppelin/contracts-upgradeable/utils/math/SafeMathUpgradeable.sol";
+import "@openzeppelin/contracts-upgradeable/security/ReentrancyGuardUpgradeable.sol";
+import "@openzeppelin/contracts-upgradeable/security/PausableUpgradeable.sol";
+import "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
 
 import "../../interfaces/IUniswapV2Router02.sol";
 import "../../interfaces/IUniswapV2Pair.sol";
@@ -15,13 +17,9 @@ interface IChainlink {
     function latestAnswer() external view returns (int256);
 }
 
-interface Factory {
-    function owner() external view returns (address);
-}
 
-
-contract DAOVaultOptionA is Initializable, ERC20Upgradeable, ReentrancyGuardUpgradeable {
-    using SafeMathUpgradeable for uint;
+contract DAOVaultOptionA is Initializable, ERC20Upgradeable, ReentrancyGuardUpgradeable, OwnableUpgradeable, PausableUpgradeable {
+    // using SafeMathUpgradeable for uint;
     using SafeERC20Upgradeable for IERC20Upgradeable;
 
     IUniswapV2Router02 public constant SushiRouter = IUniswapV2Router02(0xd9e1cE17f2641f24aE83637ab66a2cca9C378B9F);    
@@ -35,7 +33,7 @@ contract DAOVaultOptionA is Initializable, ERC20Upgradeable, ReentrancyGuardUpgr
     IERC20Upgradeable public token0;
     IERC20Upgradeable public token1;
     IUniswapV2Pair public lpPair;
-    Factory public factory;
+    
 
     address public admin; 
     address public treasuryWallet;
@@ -50,8 +48,6 @@ contract DAOVaultOptionA is Initializable, ERC20Upgradeable, ReentrancyGuardUpgr
 
     uint private token0Decimal;
     uint private token1Decimal;
-
-    bool isEmergency;
 
     mapping(address => bool) public isWhitelisted;
 
@@ -68,13 +64,9 @@ contract DAOVaultOptionA is Initializable, ERC20Upgradeable, ReentrancyGuardUpgr
     event Withdraw(address indexed _token, address _from, uint _amount, uint _sharesBurned);
 
     uint256[49] private __gap;
-    modifier onlyAdmin {
-        require(msg.sender == admin, "Only Admin");
-        _;
-    }
 
-    modifier onlyOwner {
-        require(msg.sender == factory.owner(), "only Owner");
+    modifier onlyOwnerOrAdmin {
+        require(msg.sender == owner() || msg.sender == address(admin), "Only owner or admin");
         _;
     }
 
@@ -85,6 +77,7 @@ contract DAOVaultOptionA is Initializable, ERC20Upgradeable, ReentrancyGuardUpgr
       address _masterchef, uint _masterChefVersion) external initializer {
         
         __ERC20_init(_name, _symbol);
+        __Ownable_init();
         
         poolId = _poolId;
         yieldFee = 2000; //20%
@@ -105,8 +98,6 @@ contract DAOVaultOptionA is Initializable, ERC20Upgradeable, ReentrancyGuardUpgr
         token0Decimal = ERC20Upgradeable(address(_token0)).decimals();//18;
         token1Decimal =  ERC20Upgradeable(address(_token1)).decimals();//6;
 
-        factory = Factory(msg.sender);
-
         token0.safeApprove(address(SushiRouter), type(uint).max);
         token1.safeApprove(address(SushiRouter), type(uint).max);
         lpToken.safeApprove(address(SushiRouter), type(uint).max);
@@ -119,8 +110,7 @@ contract DAOVaultOptionA is Initializable, ERC20Upgradeable, ReentrancyGuardUpgr
         @param _amount amount of token to deposit.
         @dev For ETH send, msg.value is used instead of _amount
      */
-    function deposit(uint _amount) external nonReentrant {
-        require(isEmergency == false ,"Deposit paused");
+    function deposit(uint _amount) external nonReentrant whenNotPaused {
         require(_amount > 0, "Invalid amount");
 
         _deposit(_amount);
@@ -136,12 +126,12 @@ contract DAOVaultOptionA is Initializable, ERC20Upgradeable, ReentrancyGuardUpgr
     }
 
     function _withdraw(uint _shares) internal returns (uint amountToWithdraw){
-        amountToWithdraw = balance().mul(_shares).div(totalSupply()); 
+        amountToWithdraw = balance() * _shares / totalSupply(); 
 
         uint lpInVault = available();
         
         if(amountToWithdraw > lpInVault) {
-            _withdrawFromPool(amountToWithdraw.sub(lpInVault));
+            _withdrawFromPool(amountToWithdraw - lpInVault);
         }
 
         _burn(msg.sender, _shares);
@@ -152,16 +142,13 @@ contract DAOVaultOptionA is Initializable, ERC20Upgradeable, ReentrancyGuardUpgr
 
     }
 
-    function yield() external onlyAdmin{
-        require(isEmergency == false ,"yield paused");
+    function yield() external onlyOwnerOrAdmin whenNotPaused{
         _yield();
 
     }
 
     ///@dev Moves lpTokens from this contract to Masterchef
-    function invest() external onlyAdmin {
-        require(isEmergency == false ,"Invest paused");
-
+    function invest() external onlyOwnerOrAdmin whenNotPaused{
         _transferFee();
 
         uint balanceInVault = available();
@@ -170,7 +157,7 @@ contract DAOVaultOptionA is Initializable, ERC20Upgradeable, ReentrancyGuardUpgr
         }
     }
 
-    function whitelistContract(address _addr, bool _status) external onlyOwner {
+    function whitelistContract(address _addr, bool _status) external onlyOwnerOrAdmin {
         isWhitelisted[_addr] = _status;
     }
 
@@ -178,46 +165,45 @@ contract DAOVaultOptionA is Initializable, ERC20Upgradeable, ReentrancyGuardUpgr
      *@param _yieldFee yieldFee percentange. 2000 for 20%
      *@param _depositFee deposit fee percentange. 1000 for 10%
      */
-    function setFee(uint _yieldFee, uint _depositFee) external onlyOwner {
+    function setFee(uint _yieldFee, uint _depositFee) external onlyOwnerOrAdmin {
         yieldFee = _yieldFee;
         depositFee = _depositFee;
     }
     
 
     ///@dev Withdraws lpTokens from masterChef. Yield, invest functions will be paused
-    function emergencyWithdraw() external onlyAdmin {    
-        isEmergency = true;
-        // _yield();
+    function emergencyWithdraw() external onlyOwnerOrAdmin {    
+        _pause();
 
         (uint lpTokenBalance, ) = MasterChef.userInfo(poolId, address(this));
         _withdrawFromPool(lpTokenBalance);
     }
 
     ///@dev Moves funds in this contract to masterChef. ReEnables deposit, yield, invest.
-    function reInvest() external onlyOwner {        
+    function reInvest() external onlyOwnerOrAdmin whenPaused{        
 
         _stakeToPool(available());
 
-        isEmergency = false;
+        _unpause();
     }
 
-    function setTreasuryWallet(address _treasuryWallet) external onlyAdmin {
+    function setTreasuryWallet(address _treasuryWallet) external onlyOwnerOrAdmin {
         treasuryWallet = _treasuryWallet;
         emit SetTreasuryWallet(_treasuryWallet);
     }
 
-    function setCommunityWallet(address _communityWallet) external onlyAdmin {
+    function setCommunityWallet(address _communityWallet) external onlyOwnerOrAdmin {
         communityWallet = _communityWallet;
         emit SetCommunityWallet(_communityWallet);
     }
 
-    function setStrategistWallet(address _strategistWallet) external onlyAdmin {
+    function setStrategistWallet(address _strategistWallet) external onlyOwnerOrAdmin {
         strategist = _strategistWallet;
         emit SetStrategistWallet(_strategistWallet);
     }
 
     ///@dev To move lpTokens from masterChef to this contract.
-    function withdrawToVault(uint _amount) external onlyAdmin {
+    function withdrawToVault(uint _amount) external onlyOwnerOrAdmin {
         _withdrawFromPool(_amount);
     }
 
@@ -229,9 +215,9 @@ contract DAOVaultOptionA is Initializable, ERC20Upgradeable, ReentrancyGuardUpgr
         if(isWhitelisted[msg.sender]) {
             _lpTokens = _amount;
         } else {
-            uint256 _fee = _amount.mul(depositFee).div(10000); //10%
-            _fees = _fees.add(_fee);
-            _lpTokens = _amount.sub(_fee);
+            uint256 _fee = _amount* depositFee/10000; //10%
+            _fees = _fees + _fee;
+            _lpTokens = _amount - _fee;
         }
 
         uint shares;
@@ -240,7 +226,7 @@ contract DAOVaultOptionA is Initializable, ERC20Upgradeable, ReentrancyGuardUpgr
         if(totalSupply() == 0) {
             shares = _lpTokens;
         } else {
-            shares = _lpTokens.mul(totalSupply()).div(lpTokenPool);
+            shares = _lpTokens* totalSupply() / lpTokenPool;
         }
 
         lpToken.transferFrom(msg.sender, address(this), _amount);
@@ -285,19 +271,19 @@ contract DAOVaultOptionA is Initializable, ERC20Upgradeable, ReentrancyGuardUpgr
         uint sushiBalance = SUSHI.balanceOf(address(this));
         
         if(sushiBalance > 0) {
-            lpTokens = lpTokens.add(_swapSushi(sushiBalance.div(2)));
+            lpTokens = lpTokens + (_swapSushi(sushiBalance/2));
         }
 
         uint lpTokenBalance = available();
         if(lpTokens > 0) {
-             uint fee = lpTokens.mul(yieldFee).div(10000);  //20%
-            _fees = _fees.add(fee);
-            _stakeToPool(lpTokenBalance.sub(fee));
+             uint fee = lpTokens * yieldFee/ 10000;  //20%
+            _fees = _fees + fee;
+            _stakeToPool(lpTokenBalance- fee);
 
             path[0] = address(SUSHI);
             path[1] = address(WETH);
 
-            rewardInETH = rewardInETH.add(SushiRouter.getAmountsOut(sushiBalance, path)[1]);
+            rewardInETH = rewardInETH + (SushiRouter.getAmountsOut(sushiBalance, path)[1]);
         }
 
         emit Yield(rewardInETH);
@@ -387,7 +373,7 @@ contract DAOVaultOptionA is Initializable, ERC20Upgradeable, ReentrancyGuardUpgr
         path[1] = address(token1);
         
         
-        _tokensAmount = _swapExactTokens(msg.value.div(2), 0, path);
+        _tokensAmount = _swapExactTokens(msg.value / 2, 0, path);
 
     }
 
@@ -398,7 +384,7 @@ contract DAOVaultOptionA is Initializable, ERC20Upgradeable, ReentrancyGuardUpgr
         path[0] = _token;
         path[1] = _token == address(token0) ? address(token1) : address(token0);
         
-        uint[] memory _tokensAmountTemp = _swapExactTokens(_amount.div(2), 0, path);
+        uint[] memory _tokensAmountTemp = _swapExactTokens(_amount / 2, 0, path);
 
         if(_token == address(token0)){
             _tokensAmount = _tokensAmountTemp;
@@ -424,11 +410,11 @@ contract DAOVaultOptionA is Initializable, ERC20Upgradeable, ReentrancyGuardUpgr
 
     ///@dev Transfer fee from vault
     function _transferFee() internal {
-        uint feeSplit = _fees.mul(2).div(5);
+        uint feeSplit = _fees * 2 / 5;
 
         lpToken.safeTransfer(treasuryWallet, feeSplit); //40%
         lpToken.safeTransfer(communityWallet, feeSplit); //40
-        lpToken.safeTransfer(strategist, _fees.sub(feeSplit).sub(feeSplit)); //20%
+        lpToken.safeTransfer(strategist, _fees - (feeSplit) - (feeSplit)); //20%
 
         _fees = 0;
     }
@@ -437,28 +423,19 @@ contract DAOVaultOptionA is Initializable, ERC20Upgradeable, ReentrancyGuardUpgr
         _tokens = SushiRouter.swapExactTokensForTokens(_inAmount, _outAmount, _path, address(this), block.timestamp);
     }
 
-    ///@dev calculates the assets that will be removed for the give lpTokenAmount
-    function getRemovedAmount(uint _inputAmount) internal view returns (uint _amount0, uint _amount1){
-        uint totalSupply = lpPair.totalSupply();
-        uint balance0 = token0.balanceOf(address(lpPair));
-        uint balance1 = token1.balanceOf(address(lpPair));
-
-        _amount0 = _inputAmount.mul(balance0) / totalSupply; //not using div() as per univ2
-        _amount1 = _inputAmount.mul(balance1) / totalSupply; //not using div() as per univ2
-    }
     ///@dev balance of LPTokens in vault + masterCHef
     function balance() public view returns (uint _balance){
         (uint balanceInMasterChef, ) = MasterChef.userInfo(poolId,address(this));
-        _balance = available().add(balanceInMasterChef);
+        _balance = available() + balanceInMasterChef;
     }
 
     function available() public view returns (uint _available) {
-        _available = lpToken.balanceOf(address(this)).sub(_fees);
+        _available = lpToken.balanceOf(address(this)) - _fees;
     }
 
     function getAllPool() public view returns (uint) {
         (uint balanceInMasterChef, ) = MasterChef.userInfo(poolId,address(this));
-        return lpToken.balanceOf(address(this)).add(balanceInMasterChef);
+        return lpToken.balanceOf(address(this)) + balanceInMasterChef;
     }
 
     ///@dev returns reserve values in 18 decimals. _reserve0 will always be token0 of this contract
@@ -474,7 +451,7 @@ contract DAOVaultOptionA is Initializable, ERC20Upgradeable, ReentrancyGuardUpgr
     }
 
     function _adjustDecimals(uint _amount, uint _sourceDecimals) internal pure returns(uint) { 
-         uint _newDecimal = 18 .sub( _sourceDecimals);
+         uint _newDecimal = 18 - _sourceDecimals;
          return _amount * 10 ** _newDecimal;
      }
 
@@ -489,32 +466,32 @@ contract DAOVaultOptionA is Initializable, ERC20Upgradeable, ReentrancyGuardUpgr
         }
 
         //reserve1 + reserve0
-        uint reserveInETH = token0 == WETH ? (reserve1.mul(token1PriceInETH)).add(reserve0.mul(1e18)) :
+        uint reserveInETH = token0 == WETH ? (reserve1 * (token1PriceInETH))+ (reserve0 * 1e18) :
 
-            (reserve1.mul(token1PriceInETH)).add((reserve0.mul(token0PriceInETH))) ; // for BTC-token pairs
+            (reserve1 * token1PriceInETH) + (reserve0 * (token0PriceInETH)) ; // for BTC-token pairs
 
-        return reserveInETH.div(lpPair.totalSupply());
+        return reserveInETH / (lpPair.totalSupply());
     }
 
     function getLpTokenPriceInUSD() internal view returns (uint) {
-        uint ETHPriceInUSD = uint(IChainlink(0x5f4eC3Df9cbd43714FE2740f5E3616155c5b8419).latestAnswer()).mul(1e10); // 8 decimals
-        return getlpTokenPriceInETH() .mul(ETHPriceInUSD) / 1e18;
+        uint ETHPriceInUSD = uint(IChainlink(0x5f4eC3Df9cbd43714FE2740f5E3616155c5b8419).latestAnswer()) * 1e10; // 8 decimals
+        return getlpTokenPriceInETH() * ETHPriceInUSD / 1e18;
     }
 
     function getAllPoolInETH() public view returns (uint) {
-        return getAllPool().mul(getlpTokenPriceInETH()).div(1e18);
+        return getAllPool() * getlpTokenPriceInETH() / (1e18);
     }
     ///@notice returns value in pool in USD (18 decimals)
     function getAllPoolInUSD() public view returns (uint) {
-        return getAllPool().mul(getLpTokenPriceInUSD()).div(1e18);
+        return getAllPool() * getLpTokenPriceInUSD() / 1e18;
     }
 
     function getPricePerFullShare(bool inUSD) external view returns (uint) {
         uint _totalSupply = totalSupply();
         if (_totalSupply == 0) return 0;
         return inUSD == true ?
-            getAllPoolInUSD() .mul( 1e18).div( _totalSupply) :
-            getAllPool() .mul(1e18) .div(_totalSupply);
+            getAllPoolInUSD() *  1e18 /_totalSupply :
+            getAllPool() * 1e18 / _totalSupply;
     }
 }
 

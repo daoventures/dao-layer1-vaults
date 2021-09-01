@@ -1,8 +1,8 @@
 //SPDX-License-Identifier: MIT
-pragma solidity 0.7.6;
+pragma solidity 0.8.7;
 
-import "@openzeppelin/contracts/proxy/BeaconProxy.sol";
-import "@openzeppelin/contracts/proxy/UpgradeableBeacon.sol";
+import "@openzeppelin/contracts/proxy/beacon/BeaconProxy.sol";
+import "@openzeppelin/contracts/proxy/beacon/UpgradeableBeacon.sol";
 import "@openzeppelin/contracts/access/Ownable.sol";
 
 interface Logic {
@@ -30,6 +30,8 @@ contract SushiOptionAFactory is Ownable {
         );
 
         _proxyAddress = address(proxy);
+
+        Logic(_proxyAddress).transferOwnership(owner());
         
 
         vaults.push(address(proxy));
