@@ -8,7 +8,6 @@ import "@openzeppelin/contracts-upgradeable/security/ReentrancyGuardUpgradeable.
 import "@openzeppelin/contracts-upgradeable/security/PausableUpgradeable.sol";
 import "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
-import "hardhat/console.sol";
 
 interface IIlluvium {
     struct Deposit {
@@ -68,8 +67,8 @@ interface IChainlink {
 
 contract ILVETHVault is Initializable, ERC20Upgradeable, OwnableUpgradeable, ReentrancyGuardUpgradeable, PausableUpgradeable {
     using SafeERC20Upgradeable for IERC20Upgradeable;
-    using SafeERC20Upgradeable for IPair;
     using SafeERC20Upgradeable for IWETH;
+    using SafeERC20Upgradeable for IPair;
 
     IERC20Upgradeable constant ILV = IERC20Upgradeable(0x767FE9EDC9E0dF98E07454847909b5E959D7ca0E);
     IERC20Upgradeable constant sILV = IERC20Upgradeable(0x398AeA1c9ceb7dE800284bb399A15e0Efe5A9EC2);
