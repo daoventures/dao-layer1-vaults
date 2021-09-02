@@ -68,8 +68,8 @@ interface IChainlink {
 
 contract ILVETHVault is Initializable, ERC20Upgradeable, OwnableUpgradeable, ReentrancyGuardUpgradeable, PausableUpgradeable {
     using SafeERC20Upgradeable for IERC20Upgradeable;
-    using SafeERC20Upgradeable for IWETH;
     using SafeERC20Upgradeable for IPair;
+    using SafeERC20Upgradeable for IWETH;
 
     IERC20Upgradeable constant ILV = IERC20Upgradeable(0x767FE9EDC9E0dF98E07454847909b5E959D7ca0E);
     IERC20Upgradeable constant sILV = IERC20Upgradeable(0x398AeA1c9ceb7dE800284bb399A15e0Efe5A9EC2);
@@ -80,6 +80,7 @@ contract ILVETHVault is Initializable, ERC20Upgradeable, OwnableUpgradeable, Ree
     IRouter constant sushiRouter = IRouter(0xd9e1cE17f2641f24aE83637ab66a2cca9C378B9F);
 
     uint public yieldFeePerc;
+    uint public depositFeePerc;
     uint public vestedILV;
     uint public availableID;
     mapping(address => bool) public isWhitelisted;
@@ -98,7 +99,7 @@ contract ILVETHVault is Initializable, ERC20Upgradeable, OwnableUpgradeable, Ree
     event Compound(uint amtTokenCompounded);
     event EmergencyWithdraw(uint amtTokenWithdrawed);
     event SetWhitelistAddress(address indexed _address, bool indexed status);
-    event SetYieldFeePerc(uint _yieldFeePerc);
+    event SetYieldAndDepositFeePerc(uint _yieldFeePerc, uint _depositFeePerc);
     event SetTreasuryWallet(address indexed treasuryWallet);
     event SetCommunityWallet(address indexed communityWallet);
     event SetAdminWallet(address indexed admin);
@@ -121,6 +122,7 @@ contract ILVETHVault is Initializable, ERC20Upgradeable, OwnableUpgradeable, Ree
         strategist = _strategist;
         admin = _admin;
         yieldFeePerc = 2000;
+        depositFeePerc = 1000;
 
         ILV.safeApprove(address(sushiRouter), type(uint).max);
         WETH.safeApprove(address(sushiRouter), type(uint).max);
@@ -136,7 +138,7 @@ contract ILVETHVault is Initializable, ERC20Upgradeable, OwnableUpgradeable, Ree
         depositedBlock[msg.sender] = block.number;
 
         if (!isWhitelisted[msg.sender]) {
-            uint fees = amount * 1 / 10;
+            uint fees = amount * depositFeePerc / 10000;
             amount = amount - fees;
 
             uint fee = fees * 2 / 5; // 40%
@@ -248,9 +250,10 @@ contract ILVETHVault is Initializable, ERC20Upgradeable, OwnableUpgradeable, Ree
         emit SetWhitelistAddress(addr, status);
     }
 
-    function setYieldFeePerc(uint _yieldFeePerc) external onlyOwnerOrAdmin {
+    function setYieldAndDepositFeePerc(uint _yieldFeePerc, uint _depositFeePerc) external onlyOwner {
         yieldFeePerc = _yieldFeePerc;
-        emit SetYieldFeePerc(_yieldFeePerc);
+        depositFeePerc = _depositFeePerc;
+        emit SetYieldAndDepositFeePerc(_yieldFeePerc, _depositFeePerc);
     }
 
     function setTreasuryWallet(address _treasuryWallet) external onlyOwner {
@@ -296,7 +299,7 @@ contract ILVETHVault is Initializable, ERC20Upgradeable, OwnableUpgradeable, Ree
         return ILVETH.balanceOf(address(this)) + ilvEthPool.balanceOf(address(this));
     }
 
-    function getILVETHPrice() private view returns (uint) {
+    function getILVETHPriceInETH() private view returns (uint) {
         uint ILVPriceInETH = (sushiRouter.getAmountsOut(1e18, getPath(address(ILV), address(WETH))))[1];
         (uint112 reserveILV, uint112 reserveWETH,) = ILVETH.getReserves();
         uint totalReserveInETH = reserveILV * ILVPriceInETH / 1e18 + reserveWETH;
@@ -305,7 +308,7 @@ contract ILVETHVault is Initializable, ERC20Upgradeable, OwnableUpgradeable, Ree
 
     function getILVETHPriceInUSD() private view returns (uint) {
         uint ETHPriceInUSD = uint(IChainlink(0x5f4eC3Df9cbd43714FE2740f5E3616155c5b8419).latestAnswer()); // 8 decimals
-        return getILVETHPrice() * ETHPriceInUSD / 1e8;
+        return getILVETHPriceInETH() * ETHPriceInUSD / 1e8;
     }
 
     /// @return Total amount of ILV-ETH under this contract, include vested ILV (calculate in ILV-ETH)
@@ -322,7 +325,7 @@ contract ILVETHVault is Initializable, ERC20Upgradeable, OwnableUpgradeable, Ree
     }
 
     function getAllPoolInETH() public view returns (uint) {
-        return getAllPool() * getILVETHPrice() / 1e18;
+        return getAllPool() * getILVETHPriceInETH() / 1e18;
     }
 
     function getAllPoolInUSD() public view returns (uint) {
@@ -331,7 +334,7 @@ contract ILVETHVault is Initializable, ERC20Upgradeable, OwnableUpgradeable, Ree
 
     /// @return Total amount of ILV-ETH in ETH under this contract, NOT include vested ILV
     function getAllPoolInETHExcludeVestedILV() external view returns (uint) {
-        return getTotalILVETH() * getILVETHPrice() / 1e18;
+        return getTotalILVETH() * getILVETHPriceInETH() / 1e18;
     }
 
     /// @param inUSD true for calculate user share in USD, false for calculate APR
