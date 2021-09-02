@@ -1,0 +1,289 @@
+//SPDX-License-Identifier: MIT
+pragma solidity 0.8.7;
+
+import "@openzeppelin/contracts-upgradeable/token/ERC20/IERC20Upgradeable.sol";
+import "@openzeppelin/contracts-upgradeable/token/ERC20/ERC20Upgradeable.sol";
+import "@openzeppelin/contracts-upgradeable/token/ERC20/utils/SafeERC20Upgradeable.sol";
+import "@openzeppelin/contracts-upgradeable/security/ReentrancyGuardUpgradeable.sol";
+import "@openzeppelin/contracts-upgradeable/security/PausableUpgradeable.sol";
+import "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
+import "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
+import "hardhat/console.sol";
+
+interface IRouter {
+    function swapExactTokensForTokens(
+        uint amountIn,
+        uint amountOutMin,
+        address[] calldata path,
+        address to,
+        uint deadline
+    ) external returns (uint[] memory amounts);
+
+    function addLiquidity(
+        address tokenA,
+        address tokenB,
+        uint amountADesired,
+        uint amountBDesired,
+        uint amountAMin,
+        uint amountBMin,
+        address to,
+        uint deadline
+    ) external returns (uint amountA, uint amountB, uint liquidity);
+
+    function getAmountsOut(uint amountIn, address[] memory path) external view returns (uint[] memory amounts);
+}
+
+interface IPair is IERC20Upgradeable {
+    function getReserves() external view returns (uint112 reserve0, uint112 reserve1, uint32 blockTimestampLast);
+    function token0() external view returns (address);
+}
+
+interface IMasterChef {
+    function deposit(uint pid, uint amount) external;
+    function withdraw(uint pid, uint amount) external;
+    function userInfo(uint pid, address user) external view returns (uint amount, uint rewardDebt);
+    function pendingSushi(uint pid, address user) external view returns (uint);
+}
+
+interface IChainlink {
+    function latestAnswer() external view returns (int256);
+}
+
+interface IWETH is IERC20Upgradeable {
+    function withdraw(uint amount) external;
+}
+
+contract Sushi is Initializable, ERC20Upgradeable, ReentrancyGuardUpgradeable, OwnableUpgradeable, PausableUpgradeable {
+    using SafeERC20Upgradeable for IERC20Upgradeable;
+    using SafeERC20Upgradeable for IPair;
+    using SafeERC20Upgradeable for IWETH;
+
+    IRouter constant sushiRouter = IRouter(0xd9e1cE17f2641f24aE83637ab66a2cca9C378B9F);    
+    IMasterChef constant masterChef = IMasterChef(0xc2EdaD668740f1aA35E4D8f227fB8E17dcA888Cd);
+    uint public poolId;
+
+    IPair public lpToken;
+    IERC20Upgradeable public token0; // Token pair with WETH
+    IWETH constant WETH = IWETH(0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2); 
+    IERC20Upgradeable constant SUSHI = IERC20Upgradeable(0x6B3595068778DD592e39A122f4f5a5cF09C90fE2);
+    
+    address public admin; 
+    address public treasuryWallet;
+    address public communityWallet;
+    address public strategist;
+
+    uint public yieldFee;
+    uint public depositFee;
+
+    mapping(address => bool) public isWhitelisted;
+    mapping(address => uint) private depositedBlock;
+
+    event Deposit(address indexed caller, uint amtDeposited, uint sharesMinted);
+    event Withdraw(address indexed caller, uint amtWithdrawed, uint sharesBurned);
+    event Invest(uint amtInvested);
+    event Yield(uint amount);
+    event EmergencyWithdraw(uint amtTokenWithdrawed);
+    event SetWhitelistAddress(address indexed _address, bool indexed status);
+    event SetFee(uint _yieldFee, uint _depositFee);
+    event SetTreasuryWallet(address indexed treasuryWallet);
+    event SetCommunityWallet(address indexed communityWallet);
+    event SetAdminWallet(address indexed admin);
+    event SetStrategistWallet(address indexed strategistWallet);
+
+    modifier onlyOwnerOrAdmin {
+        require(msg.sender == owner() || msg.sender == address(admin), "Only owner or admin");
+        _;
+    }
+
+    function initialize(
+            string calldata name, string calldata ticker,
+            address _treasuryWallet, address _communityWallet, address _strategist, address _admin,
+            IPair _lpToken, uint _poolId
+        ) external initializer {
+        __ERC20_init(name, ticker);
+        __Ownable_init();
+
+        treasuryWallet = _treasuryWallet;
+        communityWallet = _communityWallet;
+        strategist = _strategist;
+        admin = _admin;
+
+        lpToken = _lpToken;
+        poolId = _poolId;
+
+        yieldFee = 2000;
+        depositFee = 1000;
+
+        token0 = IERC20Upgradeable(lpToken.token0());
+
+        token0.safeApprove(address(sushiRouter), type(uint).max);
+        WETH.safeApprove(address(sushiRouter), type(uint).max);
+        lpToken.safeApprove(address(sushiRouter), type(uint).max);
+        lpToken.safeApprove(address(masterChef), type(uint).max);
+        SUSHI.safeApprove(address(sushiRouter), type(uint).max);
+    }
+        
+    function deposit(uint amount) external nonReentrant whenNotPaused {
+        require(amount > 0, "Amount must > 0");
+        uint amtDeposit = amount;
+
+        uint pool = getAllPool();
+        lpToken.safeTransferFrom(msg.sender, address(this), amount);
+        depositedBlock[msg.sender] = block.number;
+
+        if (!isWhitelisted[msg.sender]) {
+            uint fees = amount * depositFee / 10000;
+            amount = amount - fees;
+
+            uint fee = fees * 2 / 5; // 40%
+            lpToken.safeTransfer(treasuryWallet, fee);
+            lpToken.safeTransfer(communityWallet, fee);
+            lpToken.safeTransfer(strategist, fees - fee - fee);
+        }
+
+        uint _totalSupply = totalSupply();
+        uint share = _totalSupply == 0 ? amount : amount * _totalSupply / pool;
+        _mint(msg.sender, share);
+        emit Deposit(msg.sender, amtDeposit, share);
+    }
+
+    function withdraw(uint share) external nonReentrant returns (uint withdrawAmt) {
+        require(share > 0, "Share must > 0");
+        require(share <= balanceOf(msg.sender), "Not enough shares to withdraw");
+        require(depositedBlock[msg.sender] != block.number, "Withdraw within same block");
+
+        uint lpTokenBalInVault = lpToken.balanceOf(address(this));
+        (uint lpTokenBalInFarm,) = masterChef.userInfo(poolId, address(this));
+        withdrawAmt = (lpTokenBalInVault + lpTokenBalInFarm) * share / totalSupply();
+        _burn(msg.sender, share);
+
+        if (withdrawAmt > lpTokenBalInVault) {
+            uint amtToWithdraw = withdrawAmt - lpTokenBalInVault;
+            masterChef.withdraw(poolId, amtToWithdraw);
+        }
+
+        lpToken.safeTransfer(msg.sender, withdrawAmt);
+        emit Withdraw(msg.sender, withdrawAmt, share);
+    }
+
+    function invest() public onlyOwnerOrAdmin whenNotPaused {
+        masterChef.deposit(poolId, lpToken.balanceOf(address(this)));
+    }
+
+    function yield() external onlyOwnerOrAdmin whenNotPaused {
+        masterChef.deposit(poolId, 0); // To collect SUSHI
+        uint sushiBalance = SUSHI.balanceOf(address(this));
+        uint WETHAmt = (sushiRouter.swapExactTokensForTokens(
+            sushiBalance, 0, getPath(address(SUSHI), address(WETH)), address(this), block.timestamp
+        ))[1];
+
+        uint fee = WETHAmt * yieldFee / 10000;
+        WETH.withdraw(fee);
+        WETHAmt = WETHAmt - fee;
+
+        uint portionETH = address(this).balance * 2 / 5; // 40%
+        (bool _a,) = admin.call{value: portionETH}(""); // 40%
+        require(_a, "Fee transfer failed");
+        (bool _t,) = communityWallet.call{value: portionETH}(""); // 40%
+        require(_t, "Fee transfer failed");
+        (bool _s,) = strategist.call{value: (address(this).balance)}(""); // 20%
+        require(_s, "Fee transfer failed");
+
+        uint WETHAmtHalf = WETHAmt / 2;
+        uint token0Amt = (sushiRouter.swapExactTokensForTokens(
+            WETHAmtHalf, 0, getPath(address(WETH), address(token0)), address(this), block.timestamp
+        ))[1];
+        sushiRouter.addLiquidity(address(token0), address(WETH), token0Amt, WETHAmtHalf, 0, 0, address(this), block.timestamp);
+
+        emit Yield(WETHAmt);
+    }
+
+    receive() external payable {}
+
+    function emergencyWithdraw() external onlyOwnerOrAdmin {
+        _pause();
+        (uint lpTokenAmtInFarm,) = masterChef.userInfo(poolId, address(this));
+        if (lpTokenAmtInFarm > 0) {
+            masterChef.withdraw(poolId, lpTokenAmtInFarm);
+        }
+        emit EmergencyWithdraw(lpTokenAmtInFarm);
+    }
+
+    function reinvest() external onlyOwnerOrAdmin whenPaused {
+        _unpause();
+        invest();
+    }
+
+    function setWhitelistAddress(address _addr, bool _status) external onlyOwnerOrAdmin {
+        isWhitelisted[_addr] = _status;
+        emit SetWhitelistAddress(_addr, _status);
+    }
+
+    function setFee(uint _yieldFee, uint _depositFee) external onlyOwner {
+        yieldFee = _yieldFee;
+        depositFee = _depositFee;
+        emit SetFee(_yieldFee, _depositFee);
+    }
+
+    function setTreasuryWallet(address _treasuryWallet) external onlyOwner {
+        treasuryWallet = _treasuryWallet;
+        emit SetTreasuryWallet(_treasuryWallet);
+    }
+
+    function setCommunityWallet(address _communityWallet) external onlyOwner {
+        communityWallet = _communityWallet;
+        emit SetCommunityWallet(_communityWallet);
+    }
+
+    function setStrategistWallet(address _strategistWallet) external onlyOwner {
+        strategist = _strategistWallet;
+        emit SetStrategistWallet(_strategistWallet);
+    }
+
+    function getPath(address tokenA, address tokenB) private pure returns (address[] memory path) {
+        path = new address[](2);
+        path[0] = tokenA;
+        path[1] = tokenB;
+    }
+
+    function getLpTokenPriceInETH() private view returns (uint) {
+        uint token0PriceInETH = (sushiRouter.getAmountsOut(1e18, getPath(address(token0), address(WETH))))[1];
+        (uint112 reserveToken0, uint112 reserveWETH,) = lpToken.getReserves();
+        uint totalReserveInETH = reserveToken0 * token0PriceInETH / 1e18 + reserveWETH;
+        return totalReserveInETH * 1e18 / lpToken.totalSupply();
+    }
+
+    function getLpTokenPriceInUSD() private view returns (uint) {
+        uint ETHPriceInUSD = uint(IChainlink(0x5f4eC3Df9cbd43714FE2740f5E3616155c5b8419).latestAnswer()); // 8 decimals
+        return getLpTokenPriceInETH() * ETHPriceInUSD / 1e8;
+    }
+
+    /// @return Pending rewards in SUSHI token
+    /// @dev Rewards also been claimed while deposit or withdraw through masterChef contract
+    function getPendingRewards() external view returns (uint) {
+        uint pendingRewards = masterChef.pendingSushi(poolId, address(this));
+        return pendingRewards + lpToken.balanceOf(address(this));
+    }
+
+    function getAllPool() public view returns (uint) {
+        (uint lpTokenAmtInFarm, ) = masterChef.userInfo(poolId, address(this));
+        return lpToken.balanceOf(address(this)) + lpTokenAmtInFarm;
+    }
+
+    function getAllPoolInETH() public view returns (uint) {
+        return getAllPool() * getLpTokenPriceInETH() / 1e18;
+    }
+
+    function getAllPoolInUSD() public view returns (uint) {
+        return getAllPool() * getLpTokenPriceInUSD() / 1e18;
+    }
+
+    /// @param inUSD true for calculate user share in USD, false for calculate APR
+    function getPricePerFullShare(bool inUSD) external view returns (uint) {
+        uint _totalSupply = totalSupply();
+        if (_totalSupply == 0) return 0;
+        return inUSD == true ?
+            getAllPoolInUSD() * 1e18 / _totalSupply :
+            getAllPool() * 1e18 / _totalSupply;
+    }
+}
