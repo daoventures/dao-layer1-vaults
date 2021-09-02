@@ -36,12 +36,14 @@ interface IRouter {
 interface IPair is IERC20Upgradeable {
     function getReserves() external view returns (uint112 reserve0, uint112 reserve1, uint32 blockTimestampLast);
     function token0() external view returns (address);
+    function token1() external view returns (address);
 }
 
 interface IMasterChef {
     function deposit(uint pid, uint amount) external;
     function withdraw(uint pid, uint amount) external;
     function userInfo(uint pid, address user) external view returns (uint amount, uint rewardDebt);
+    function poolInfo(uint pid) external view returns (address lpToken, uint allocPoint, uint lastRewardBlock, uint accSushiPerShare);
     function pendingSushi(uint pid, address user) external view returns (uint);
 }
 
@@ -63,7 +65,8 @@ contract Sushi is Initializable, ERC20Upgradeable, ReentrancyGuardUpgradeable, O
     uint public poolId;
 
     IPair public lpToken;
-    IERC20Upgradeable public token0; // Token pair with WETH
+    IERC20Upgradeable public token0;
+    IERC20Upgradeable public token1;
     IWETH constant WETH = IWETH(0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2); 
     IERC20Upgradeable constant SUSHI = IERC20Upgradeable(0x6B3595068778DD592e39A122f4f5a5cF09C90fE2);
     
@@ -96,9 +99,8 @@ contract Sushi is Initializable, ERC20Upgradeable, ReentrancyGuardUpgradeable, O
     }
 
     function initialize(
-            string calldata name, string calldata ticker,
-            address _treasuryWallet, address _communityWallet, address _strategist, address _admin,
-            IPair _lpToken, uint _poolId
+            string calldata name, string calldata ticker, uint _poolId,
+            address _treasuryWallet, address _communityWallet, address _strategist, address _admin
         ) external initializer {
         __ERC20_init(name, ticker);
         __Ownable_init();
@@ -108,16 +110,18 @@ contract Sushi is Initializable, ERC20Upgradeable, ReentrancyGuardUpgradeable, O
         strategist = _strategist;
         admin = _admin;
 
-        lpToken = _lpToken;
         poolId = _poolId;
+        (address _lpToken,,,) = masterChef.poolInfo(_poolId);
+        lpToken = IPair(_lpToken);
 
         yieldFee = 2000;
         depositFee = 1000;
 
         token0 = IERC20Upgradeable(lpToken.token0());
+        token1 = IERC20Upgradeable(lpToken.token1());
 
         token0.safeApprove(address(sushiRouter), type(uint).max);
-        WETH.safeApprove(address(sushiRouter), type(uint).max);
+        token1.safeApprove(address(sushiRouter), type(uint).max);
         lpToken.safeApprove(address(sushiRouter), type(uint).max);
         lpToken.safeApprove(address(masterChef), type(uint).max);
         SUSHI.safeApprove(address(sushiRouter), type(uint).max);
@@ -190,10 +194,11 @@ contract Sushi is Initializable, ERC20Upgradeable, ReentrancyGuardUpgradeable, O
         require(_s, "Fee transfer failed");
 
         uint WETHAmtHalf = WETHAmt / 2;
-        uint token0Amt = (sushiRouter.swapExactTokensForTokens(
-            WETHAmtHalf, 0, getPath(address(WETH), address(token0)), address(this), block.timestamp
+        address baseToken = address(token0) == address(WETH) ? address(token1) : address(token0);
+        uint baseTokenAmt = (sushiRouter.swapExactTokensForTokens(
+            WETHAmtHalf, 0, getPath(address(WETH), baseToken), address(this), block.timestamp
         ))[1];
-        sushiRouter.addLiquidity(address(token0), address(WETH), token0Amt, WETHAmtHalf, 0, 0, address(this), block.timestamp);
+        sushiRouter.addLiquidity(address(baseToken), address(WETH), baseTokenAmt, WETHAmtHalf, 0, 0, address(this), block.timestamp);
 
         emit Yield(WETHAmt);
     }
@@ -247,9 +252,11 @@ contract Sushi is Initializable, ERC20Upgradeable, ReentrancyGuardUpgradeable, O
     }
 
     function getLpTokenPriceInETH() private view returns (uint) {
-        uint token0PriceInETH = (sushiRouter.getAmountsOut(1e18, getPath(address(token0), address(WETH))))[1];
-        (uint112 reserveToken0, uint112 reserveWETH,) = lpToken.getReserves();
-        uint totalReserveInETH = reserveToken0 * token0PriceInETH / 1e18 + reserveWETH;
+        address baseToken = address(token0) == address(WETH) ? address(token1) : address(token0);
+        uint baseTokenPriceInETH = (sushiRouter.getAmountsOut(1e18, getPath(baseToken, address(WETH))))[1];
+        (uint112 reserveToken0, uint112 reserveToken1,) = lpToken.getReserves();
+        uint112 reserveWETH = address(token0) == address(WETH) ? reserveToken1 : reserveToken0;
+        uint totalReserveInETH = reserveToken0 * baseTokenPriceInETH / 1e18 + reserveWETH;
         return totalReserveInETH * 1e18 / lpToken.totalSupply();
     }
 
@@ -262,7 +269,7 @@ contract Sushi is Initializable, ERC20Upgradeable, ReentrancyGuardUpgradeable, O
     /// @dev Rewards also been claimed while deposit or withdraw through masterChef contract
     function getPendingRewards() external view returns (uint) {
         uint pendingRewards = masterChef.pendingSushi(poolId, address(this));
-        return pendingRewards + lpToken.balanceOf(address(this));
+        return pendingRewards + SUSHI.balanceOf(address(this));
     }
 
     function getAllPool() public view returns (uint) {
