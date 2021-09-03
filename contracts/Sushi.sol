@@ -8,7 +8,6 @@ import "@openzeppelin/contracts-upgradeable/security/ReentrancyGuardUpgradeable.
 import "@openzeppelin/contracts-upgradeable/security/PausableUpgradeable.sol";
 import "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
-import "hardhat/console.sol";
 
 interface IRouter {
     function swapExactTokensForTokens(
@@ -67,6 +66,7 @@ contract Sushi is Initializable, ERC20Upgradeable, ReentrancyGuardUpgradeable, O
     IPair public lpToken;
     IERC20Upgradeable public token0;
     IERC20Upgradeable public token1;
+    uint baseTokenDecimals;
     IWETH constant WETH = IWETH(0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2); 
     IERC20Upgradeable constant SUSHI = IERC20Upgradeable(0x6B3595068778DD592e39A122f4f5a5cF09C90fE2);
     
@@ -119,6 +119,8 @@ contract Sushi is Initializable, ERC20Upgradeable, ReentrancyGuardUpgradeable, O
 
         token0 = IERC20Upgradeable(lpToken.token0());
         token1 = IERC20Upgradeable(lpToken.token1());
+        address baseToken = address(token0) == address(WETH) ? address(token1) : address(token0);
+        baseTokenDecimals = ERC20Upgradeable(baseToken).decimals();
 
         token0.safeApprove(address(sushiRouter), type(uint).max);
         token1.safeApprove(address(sushiRouter), type(uint).max);
@@ -252,11 +254,24 @@ contract Sushi is Initializable, ERC20Upgradeable, ReentrancyGuardUpgradeable, O
     }
 
     function getLpTokenPriceInETH() private view returns (uint) {
-        address baseToken = address(token0) == address(WETH) ? address(token1) : address(token0);
-        uint baseTokenPriceInETH = (sushiRouter.getAmountsOut(1e18, getPath(baseToken, address(WETH))))[1];
+        address baseToken;
+        uint reserveBaseToken;
+        uint reserveWETH;
+
         (uint112 reserveToken0, uint112 reserveToken1,) = lpToken.getReserves();
-        uint112 reserveWETH = address(token0) == address(WETH) ? reserveToken1 : reserveToken0;
-        uint totalReserveInETH = reserveToken0 * baseTokenPriceInETH / 1e18 + reserveWETH;
+        if (address(token0) == address(WETH)) {
+            baseToken = address(token1);
+            reserveWETH = reserveToken0;
+            reserveBaseToken = reserveToken1;
+        } else {
+            baseToken = address(token0);
+            reserveWETH = reserveToken1;
+            reserveBaseToken = reserveToken0;
+        }
+
+        uint _baseTokenDecimals = baseTokenDecimals;
+        uint baseTokenPriceInETH = (sushiRouter.getAmountsOut(10 ** _baseTokenDecimals, getPath(baseToken, address(WETH))))[1];
+        uint totalReserveInETH = reserveBaseToken * baseTokenPriceInETH / 10 ** _baseTokenDecimals + reserveWETH;
         return totalReserveInETH * 1e18 / lpToken.totalSupply();
     }
 
@@ -294,3 +309,4 @@ contract Sushi is Initializable, ERC20Upgradeable, ReentrancyGuardUpgradeable, O
             getAllPool() * 1e18 / _totalSupply;
     }
 }
+
