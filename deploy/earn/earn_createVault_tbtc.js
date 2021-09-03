@@ -1,0 +1,39 @@
+const { ethers, network, artifacts, upgrades } = require("hardhat");
+const { mainnet: network_ } = require("../../addresses");
+
+const pid = 16
+const type = 2
+const curvePoolAddr = "0xC25099792E9349C7DD09759744ea681C7de2cb66"
+const curvePoolZap = "0xaa82ca713D94bBA7A89CEAB55314F9EfFEdDc78c"
+
+module.exports = async ({ deployments }) => {
+    const { deploy, catchUnknownSigner } = deployments;
+    const [deployer] = await ethers.getSigners();
+
+    let Factory = await ethers.getContract("EarnStrategyFactory")
+
+    const zap = await ethers.getContract("CurveMetaPoolBTCZap", deployer)
+    
+    let implArtifacts = await artifacts.readArtifact("EarnVault")
+    
+    let implABI = implArtifacts.abi
+
+
+    let implInterfacec = new ethers.utils.Interface(implABI)
+
+    let data = implInterfacec.encodeFunctionData("initialize", [ zap.address,
+        network_.treasury, network_.community,
+        network_.admin, network_.strategist, pid, type])
+    
+    
+    await Factory.connect(deployer).createVault(data)
+    
+    const vaultProxy = await Factory.getVault((await Factory.totalVaults()).toNumber() - 1)
+
+    await zap.addPool(vaultProxy, curvePoolAddr, curvePoolZap)
+
+
+};
+
+module.exports.tags = ["earn_mainnet_deploy_vault_tbtc"];
+module.exports.dependencies = ["earn_mainnet_deploy_factory"]
