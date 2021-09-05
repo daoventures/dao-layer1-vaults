@@ -75,8 +75,8 @@ contract Sushi is Initializable, ERC20Upgradeable, ReentrancyGuardUpgradeable, O
     address public communityWallet;
     address public strategist;
 
-    uint public yieldFee;
-    uint public depositFee;
+    uint public yieldFeePerc;
+    uint public depositFeePerc;
 
     mapping(address => bool) public isWhitelisted;
     mapping(address => uint) private depositedBlock;
@@ -87,11 +87,12 @@ contract Sushi is Initializable, ERC20Upgradeable, ReentrancyGuardUpgradeable, O
     event Yield(uint amount);
     event EmergencyWithdraw(uint amtTokenWithdrawed);
     event SetWhitelistAddress(address indexed _address, bool indexed status);
-    event SetFee(uint _yieldFee, uint _depositFee);
+    event SetFee(uint _yieldFeePerc, uint _depositFeePerc);
     event SetTreasuryWallet(address indexed treasuryWallet);
     event SetCommunityWallet(address indexed communityWallet);
     event SetAdminWallet(address indexed admin);
     event SetStrategistWallet(address indexed strategistWallet);
+    event SetAdmin(address indexed admin);
 
     modifier onlyOwnerOrAdmin {
         require(msg.sender == owner() || msg.sender == address(admin), "Only owner or admin");
@@ -99,10 +100,10 @@ contract Sushi is Initializable, ERC20Upgradeable, ReentrancyGuardUpgradeable, O
     }
 
     function initialize(
-            string calldata name, string calldata ticker, uint _poolId,
+            string calldata name, string calldata symbol, uint _poolId,
             address _treasuryWallet, address _communityWallet, address _strategist, address _admin
         ) external initializer {
-        __ERC20_init(name, ticker);
+        __ERC20_init(name, symbol);
         __Ownable_init();
 
         treasuryWallet = _treasuryWallet;
@@ -114,8 +115,8 @@ contract Sushi is Initializable, ERC20Upgradeable, ReentrancyGuardUpgradeable, O
         (address _lpToken,,,) = masterChef.poolInfo(_poolId);
         lpToken = IPair(_lpToken);
 
-        yieldFee = 2000;
-        depositFee = 1000;
+        yieldFeePerc = 2000;
+        depositFeePerc = 1000;
 
         token0 = IERC20Upgradeable(lpToken.token0());
         token1 = IERC20Upgradeable(lpToken.token1());
@@ -138,7 +139,7 @@ contract Sushi is Initializable, ERC20Upgradeable, ReentrancyGuardUpgradeable, O
         depositedBlock[msg.sender] = block.number;
 
         if (!isWhitelisted[msg.sender]) {
-            uint fees = amount * depositFee / 10000;
+            uint fees = amount * depositFeePerc / 10000;
             amount = amount - fees;
 
             uint fee = fees * 2 / 5; // 40%
@@ -183,7 +184,7 @@ contract Sushi is Initializable, ERC20Upgradeable, ReentrancyGuardUpgradeable, O
             sushiBalance, 0, getPath(address(SUSHI), address(WETH)), address(this), block.timestamp
         ))[1];
 
-        uint fee = WETHAmt * yieldFee / 10000;
+        uint fee = WETHAmt * yieldFeePerc / 10000;
         WETH.withdraw(fee);
         WETHAmt = WETHAmt - fee;
 
@@ -226,10 +227,10 @@ contract Sushi is Initializable, ERC20Upgradeable, ReentrancyGuardUpgradeable, O
         emit SetWhitelistAddress(_addr, _status);
     }
 
-    function setFee(uint _yieldFee, uint _depositFee) external onlyOwner {
-        yieldFee = _yieldFee;
-        depositFee = _depositFee;
-        emit SetFee(_yieldFee, _depositFee);
+    function setFee(uint _yieldFeePerc, uint _depositFeePerc) external onlyOwner {
+        yieldFeePerc = _yieldFeePerc;
+        depositFeePerc = _depositFeePerc;
+        emit SetFee(_yieldFeePerc, _depositFeePerc);
     }
 
     function setTreasuryWallet(address _treasuryWallet) external onlyOwner {
@@ -245,6 +246,11 @@ contract Sushi is Initializable, ERC20Upgradeable, ReentrancyGuardUpgradeable, O
     function setStrategistWallet(address _strategistWallet) external onlyOwner {
         strategist = _strategistWallet;
         emit SetStrategistWallet(_strategistWallet);
+    }
+
+    function setAdmin(address _admin) external onlyOwner {
+        admin = _admin;
+        emit SetAdmin(_admin);
     }
 
     function getPath(address tokenA, address tokenB) private pure returns (address[] memory path) {
@@ -309,4 +315,3 @@ contract Sushi is Initializable, ERC20Upgradeable, ReentrancyGuardUpgradeable, O
             getAllPool() * 1e18 / _totalSupply;
     }
 }
-
