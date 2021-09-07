@@ -39,12 +39,15 @@ interface UniRouter {
         uint deadline
     ) external returns (uint amountA, uint amountB, uint liquidity) ;
 
+    function getAmountsOut(uint amountIn, address[] memory path) external view returns (uint[] memory amounts);
+
 }
 
 contract MirrorVault is Initializable, ERC20Upgradeable, OwnableUpgradeable, PausableUpgradeable, ReentrancyGuardUpgradeable{
     using SafeERC20Upgradeable for IERC20Upgradeable;
 
     IERC20Upgradeable public constant Mir  = IERC20Upgradeable(0x09a3EcAFa817268f77BE1283176B946C4ff2E608);
+    IERC20Upgradeable public constant WETH = IERC20Upgradeable(0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2);
     IERC20Upgradeable public lpToken;
     ILpPool public lpPool;
 
@@ -63,6 +66,19 @@ contract MirrorVault is Initializable, ERC20Upgradeable, OwnableUpgradeable, Pau
     address private token1;
 
     mapping(address => bool) public isWhitelisted;
+
+    event Deposit(address _user, uint _amount, uint _shares);
+    event EmergencyWithdraw(uint _amount);
+    event Invest(uint _amount);
+    event setAdmin(address _oldAdmin, address _newAdmin);
+    event SetDepositFeePerc(uint _fee);
+    event SetYieldFeePerc(uint _fee);
+    event setCommunityWallet(address _wallet);
+    event setStrategistWallet(address _wallet);
+    event setTreasuryWallet(address _wallet);
+    event Withdraw(address _user, uint _amount, uint _shares);
+    event YieldFee(uint _amount);
+    event Yield(uint _amount);
 
     modifier onlyOwnerOrAdmin {
         require(msg.sender == owner() || msg.sender == admin, "Only owner or admin");
@@ -113,6 +129,7 @@ contract MirrorVault is Initializable, ERC20Upgradeable, OwnableUpgradeable, Pau
         uint _shares = _totalSupply == 0 ? _amount : _amount * _totalSupply / _pool;
 
         _mint(msg.sender, _shares);
+        emit Deposit(msg.sender, _amount, _shares);
     }
 
     function withdraw(uint _shares) external nonReentrant{
@@ -128,49 +145,63 @@ contract MirrorVault is Initializable, ERC20Upgradeable, OwnableUpgradeable, Pau
         _burn(msg.sender, _shares);
 
         lpToken.safeTransfer(msg.sender, _amountToWithdraw);
+
+        emit Withdraw(msg.sender, _amountToWithdraw, _shares);
         
     }
 
-    function invest() external whenNotPaused {
+    function invest() external onlyOwnerOrAdmin whenNotPaused {
         _transferFees();
-        _invest();
+        uint _amount = _invest();
 
-        //invest event TODO
+        emit Invest(_amount);
     }
 
-    function _invest() private {
+    function _invest() private returns (uint){
         uint lpTokenBalance = lpToken.balanceOf(address(this));
         if(lpTokenBalance > _fees) {
             lpPool.stake(lpTokenBalance - _fees);
+            
+            return lpTokenBalance - _fees;
         }
+
+        return 0;
     }
 
-    function yield() external { //TODO onlyadminorOwner
-        uint _rewardInEth = _yield();
-        //TODO yield event(_rewardInEth)
+    function yield() external onlyOwnerOrAdmin { 
+        _yield();
     }
 
-    function _yield() private returns (uint _rewardsInEth) {
+    function _yield() private {
         uint _rewardMir = lpPool.earned(address(this));
 
         if(_rewardMir > 0) {
 
-            //_rewardsInEth = router.getAmountsOut//TODO
-
             lpPool.getReward(); //TODO compare MIR.balance and _rewardMir
+
             uint _outAmount = _swap(address(Mir), address(token0), _rewardMir /2);
             uint _outAmount1 = _swap(address(Mir), address(token1), _rewardMir /2);
 
             (,,uint lpTokenAmount) = router. addLiquidity(address(token0), address(token1), _outAmount, _outAmount1, 0, 0, address(this), block.timestamp);
 
-            _fees += lpTokenAmount * yieldFee / DENOMINATOR;
+            uint _fee = lpTokenAmount * yieldFee / DENOMINATOR;
+            _fees += _fee;
 
             _invest();
+
+            address[] memory path = new address[](2);
+            path[0] = address(Mir);
+            path[1] = address(WETH);
+            
+            uint _priceInETH = router.getAmountsOut(1e18, path)[1];
+
+            emit Yield(_rewardMir * _priceInETH);
+            emit YieldFee(_fee * _priceInETH);
 
         }
     }
 
-    function emergencyWithdraw() external whenNotPaused{ //TODO add onlyAdmin
+    function emergencyWithdraw() external onlyOwnerOrAdmin whenNotPaused{ 
         _pause();
 
         _yield();
@@ -179,7 +210,7 @@ contract MirrorVault is Initializable, ERC20Upgradeable, OwnableUpgradeable, Pau
     }
 
 
-    function reInvest() external { //TODO add onlyAdmin
+    function reInvest() external onlyOwnerOrAdmin {
         _invest();
         _unpause();
     }
@@ -195,7 +226,7 @@ contract MirrorVault is Initializable, ERC20Upgradeable, OwnableUpgradeable, Pau
         _outAmount = router.swapExactTokensForTokens(_amount, 0, path, address(this), block.timestamp)[1];
     }
 
-    function transferFees() external  { //TODO onlyadminorOwner
+    function transferFees() external onlyOwnerOrAdmin { 
         _transferFees();
     }
 
