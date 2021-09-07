@@ -70,12 +70,12 @@ contract MirrorVault is Initializable, ERC20Upgradeable, OwnableUpgradeable, Pau
     event Deposit(address _user, uint _amount, uint _shares);
     event EmergencyWithdraw(uint _amount);
     event Invest(uint _amount);
-    event setAdmin(address _oldAdmin, address _newAdmin);
+    event SetAdmin(address _oldAdmin, address _newAdmin);
     event SetDepositFeePerc(uint _fee);
     event SetYieldFeePerc(uint _fee);
-    event setCommunityWallet(address _wallet);
-    event setStrategistWallet(address _wallet);
-    event setTreasuryWallet(address _wallet);
+    event SetCommunityWallet(address _wallet);
+    event SetStrategistWallet(address _wallet);
+    event SetTreasuryWallet(address _wallet);
     event Withdraw(address _user, uint _amount, uint _shares);
     event YieldFee(uint _amount);
     event Yield(uint _amount);
@@ -168,24 +168,24 @@ contract MirrorVault is Initializable, ERC20Upgradeable, OwnableUpgradeable, Pau
         return 0;
     }
 
-    function yield() external onlyOwnerOrAdmin { 
+    function yield() external onlyOwnerOrAdmin whenNotPaused { 
         _yield();
     }
 
     function _yield() private {
-        uint _rewardMir = lpPool.earned(address(this));
+        uint rewardMir = lpPool.earned(address(this));
 
-        if(_rewardMir > 0) {
+        if(rewardMir > 0) {
 
             lpPool.getReward(); //TODO compare MIR.balance and _rewardMir
 
-            uint _outAmount = _swap(address(Mir), address(token0), _rewardMir /2);
-            uint _outAmount1 = _swap(address(Mir), address(token1), _rewardMir /2);
+            uint outAmount = _swap(address(Mir), address(token0), rewardMir /2);
+            uint outAmount1 = _swap(address(Mir), address(token1), rewardMir /2);
 
-            (,,uint lpTokenAmount) = router. addLiquidity(address(token0), address(token1), _outAmount, _outAmount1, 0, 0, address(this), block.timestamp);
+            (,,uint lpTokenAmount) = router. addLiquidity(address(token0), address(token1), outAmount, outAmount1, 0, 0, address(this), block.timestamp);
 
-            uint _fee = lpTokenAmount * yieldFee / DENOMINATOR;
-            _fees += _fee;
+            uint fee = lpTokenAmount * yieldFee / DENOMINATOR;
+            _fees += fee;
 
             _invest();
 
@@ -193,10 +193,10 @@ contract MirrorVault is Initializable, ERC20Upgradeable, OwnableUpgradeable, Pau
             path[0] = address(Mir);
             path[1] = address(WETH);
             
-            uint _priceInETH = router.getAmountsOut(1e18, path)[1];
+            uint priceInETH = router.getAmountsOut(1e18, path)[1];
 
-            emit Yield(_rewardMir * _priceInETH);
-            emit YieldFee(_fee * _priceInETH);
+            emit Yield(rewardMir * priceInETH);
+            emit YieldFee(fee * priceInETH);
 
         }
     }
@@ -210,13 +210,40 @@ contract MirrorVault is Initializable, ERC20Upgradeable, OwnableUpgradeable, Pau
     }
 
 
-    function reInvest() external onlyOwnerOrAdmin {
+    function reInvest() external onlyOwnerOrAdmin whenPaused {
         _invest();
         _unpause();
     }
 
+    function setAdmin(address _newAdmin) external onlyOwner{
+        address oldAdmin = admin;
+        admin = _newAdmin;
 
+        emit SetAdmin(oldAdmin, _newAdmin);
+    }
 
+    function setFee(uint _depositFeePerc, uint _yieldFeePerc) external onlyOwnerOrAdmin{
+        depositFee = _depositFeePerc;
+        yieldFee = _yieldFeePerc;
+
+        emit SetDepositFeePerc(_depositFeePerc);
+        emit SetYieldFeePerc(_yieldFeePerc);
+    }
+
+    function setTreasuryWallet(address _wallet) external onlyOwnerOrAdmin {
+        treasuryWallet = _wallet;
+        emit SetTreasuryWallet(_wallet);
+    }
+
+    function setCommunityWallet(address _wallet) external onlyOwnerOrAdmin {
+        communityWallet = _wallet;
+        emit SetCommunityWallet(_wallet);
+    }
+
+    function setStrategistWallet(address _wallet) external onlyOwnerOrAdmin {
+        strategist = _wallet;
+        emit SetStrategistWallet(_wallet);
+    }
 
     function _swap(address _token0, address _token1, uint _amount) private returns (uint _outAmount){
         address[] memory path = new address[](2);
