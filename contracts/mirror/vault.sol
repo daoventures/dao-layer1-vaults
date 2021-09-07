@@ -7,7 +7,7 @@ import "@openzeppelin/contracts-upgradeable/token/ERC20/utils/SafeERC20Upgradeab
 import "@openzeppelin/contracts-upgradeable/security/ReentrancyGuardUpgradeable.sol";
 import "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
 import "@openzeppelin/contracts-upgradeable/security/PausableUpgradeable.sol";
-
+import "hardhat/console.sol";
 
 interface ILpPool is IERC20Upgradeable{
     function earned(address _account) external view returns (uint);
@@ -19,7 +19,7 @@ interface ILpPool is IERC20Upgradeable{
     function withdraw(uint _amount) external ;
 }
 
-interface UniRouter {
+interface IUniRouter {
     function swapExactTokensForTokens(
         uint amountIn,
         uint amountOutMin,
@@ -43,18 +43,32 @@ interface UniRouter {
 
 }
 
+interface IUniPair {
+    function getReserves() external view returns (uint, uint);
+    function totalSupply() external view returns (uint);
+    function token0() external view returns (address);
+    function token1() external view returns (address);
+}
+
+interface IChainlink {
+    function latestAnswer() external view returns (int256);
+}
+
+
 contract MirrorVault is Initializable, ERC20Upgradeable, OwnableUpgradeable, PausableUpgradeable, ReentrancyGuardUpgradeable{
     using SafeERC20Upgradeable for IERC20Upgradeable;
 
     IERC20Upgradeable public constant Mir  = IERC20Upgradeable(0x09a3EcAFa817268f77BE1283176B946C4ff2E608);
     IERC20Upgradeable public constant WETH = IERC20Upgradeable(0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2);
+    IERC20Upgradeable public constant UST = IERC20Upgradeable(0xa47c8bf37f92aBed4A126BDA807A7b7498661acD);
     IERC20Upgradeable public lpToken;
+    IUniPair public pair;
     ILpPool public lpPool;
 
-    UniRouter public constant router = UniRouter(0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D);
+    IUniRouter public constant router = IUniRouter(0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D);
 
     uint private _fees;
-    uint private DENOMINATOR = 10000;
+    uint private constant DENOMINATOR = 10000;
     uint public yieldFee;
     uint public depositFee;
 
@@ -62,8 +76,7 @@ contract MirrorVault is Initializable, ERC20Upgradeable, OwnableUpgradeable, Pau
     address public communityWallet;
     address public strategist;
     address public admin;
-    address private token0;
-    address private token1;
+    address private mAsset;
 
     mapping(address => bool) public isWhitelisted;
 
@@ -87,7 +100,7 @@ contract MirrorVault is Initializable, ERC20Upgradeable, OwnableUpgradeable, Pau
 
 
     function initialize(string memory _name, string memory _symbol, 
-        ILpPool _lpPool, address _token0, address _token1,
+        ILpPool _lpPool, address _mAsset, address _lpToken,
         address _treasury, address _communityWallet, address _strategist, address _admin
     ) external initializer {
 
@@ -98,17 +111,22 @@ contract MirrorVault is Initializable, ERC20Upgradeable, OwnableUpgradeable, Pau
         depositFee = 1000; //10%
         
         lpPool = _lpPool;
-        lpToken = IERC20Upgradeable(lpPool.lpt());
+        lpToken = IERC20Upgradeable(_lpToken);
 
-        lpToken.safeApprove(address(_lpPool), type(uint).max);
+        require(_lpToken == lpPool.lpt(), "lptoken mismatch");
+        pair = IUniPair(_lpToken);
 
-        token0 = _token0;
-        token1 = _token1;
+        mAsset = _mAsset;
         admin = _admin;
 
         treasuryWallet = _treasury;
         communityWallet = _communityWallet;
         strategist = _strategist;
+
+        lpToken.safeApprove(address(_lpPool), type(uint).max);
+        Mir.safeApprove(address(router), type(uint).max);
+        UST.safeApprove(address(router), type(uint).max);
+        IERC20Upgradeable(mAsset).safeApprove(address(router), type(uint).max);
         
     }
 
@@ -177,12 +195,12 @@ contract MirrorVault is Initializable, ERC20Upgradeable, OwnableUpgradeable, Pau
 
         if(rewardMir > 0) {
 
-            lpPool.getReward(); //TODO compare MIR.balance and _rewardMir
+            lpPool.getReward();
 
-            uint outAmount = _swap(address(Mir), address(token0), rewardMir /2);
-            uint outAmount1 = _swap(address(Mir), address(token1), rewardMir /2);
+            uint outAmount = _swap(address(Mir), mAsset, rewardMir /2);
+            uint outAmount1 = _swap(address(Mir), address(UST), rewardMir /2);
 
-            (,,uint lpTokenAmount) = router. addLiquidity(address(token0), address(token1), outAmount, outAmount1, 0, 0, address(this), block.timestamp);
+            (,,uint lpTokenAmount) = router. addLiquidity(address(mAsset), address(UST), outAmount, outAmount1, 0, 0, address(this), block.timestamp);
 
             uint fee = lpTokenAmount * yieldFee / DENOMINATOR;
             _fees += fee;
@@ -246,11 +264,24 @@ contract MirrorVault is Initializable, ERC20Upgradeable, OwnableUpgradeable, Pau
     }
 
     function _swap(address _token0, address _token1, uint _amount) private returns (uint _outAmount){
-        address[] memory path = new address[](2);
-        path[0] = _token0;
-        path[1] = _token1;
 
-        _outAmount = router.swapExactTokensForTokens(_amount, 0, path, address(this), block.timestamp)[1];
+        //Mir -> mAsset pair doesn;t exists
+        if(_token1 == mAsset) { 
+            address[] memory path = new address[](3);
+            path[0] = _token0;
+            path[1] = address(WETH);
+            path[2] = _token1;
+
+            _outAmount = router.swapExactTokensForTokens(_amount, 0, path, address(this), block.timestamp)[2];
+        } else {
+            address[] memory path = new address[](2);
+            path[0] = _token0;
+            path[1] = _token1;
+
+
+            _outAmount = router.swapExactTokensForTokens(_amount, 0, path, address(this), block.timestamp)[1];
+        }
+
     }
 
     function transferFees() external onlyOwnerOrAdmin { 
@@ -262,7 +293,7 @@ contract MirrorVault is Initializable, ERC20Upgradeable, OwnableUpgradeable, Pau
 
         lpToken.safeTransfer(treasuryWallet, feeSplit);
         lpToken.safeTransfer(communityWallet, feeSplit);
-        lpToken.safeTransfer(treasuryWallet, _fees - (feeSplit + feeSplit));
+        lpToken.safeTransfer(strategist, _fees - (feeSplit + feeSplit));
 
         _fees = 0;
     }
@@ -271,6 +302,52 @@ contract MirrorVault is Initializable, ERC20Upgradeable, OwnableUpgradeable, Pau
         _pool = lpToken.balanceOf(address(this)) + 
             lpPool.balanceOf(address(this)) - //CHECK TODO
             _fees;
+    }
+
+    function _getReserves() private view returns (uint _mAssetReserve, uint _ustReserve) {
+        (_mAssetReserve, _ustReserve) = pair.getReserves();
+         
+        if(pair.token0() != mAsset) {
+            (_mAssetReserve, _ustReserve) = (_ustReserve, _mAssetReserve);
+        }
+    }
+
+    function getAllPoolInETH() public view returns (uint) {
+        //TODO get price of 1 uniLP token in ETH
+        //multiple getAllPool() * priceOf1 uniLP in ETH
+
+        uint _pool = getAllPool();
+        address[] memory path = new address[](2);
+        path[0] = address(mAsset);
+        path[1] = address(UST);
+
+        uint mAssetPriceInUST = router.getAmountsOut(1e18, path)[1];
+
+        (uint reservemAsset, uint reserveUST) = _getReserves();
+
+        uint _totalSupply = pair.totalSupply();
+        uint totalmAsset = _pool * reservemAsset / _totalSupply;
+        uint totalUST = _pool * reserveUST / _totalSupply;
+
+        uint valueInUST = (totalmAsset * mAssetPriceInUST / 1e18) + totalUST;
+
+        path[0] = address(UST);
+        path[1] = address(WETH);
+
+        return router.getAmountsOut(valueInUST, path)[1];
+    }
+
+    function getAllPoolInUSD() public view returns (uint) {
+        uint ETHPriceInUSD = uint(IChainlink(0x5f4eC3Df9cbd43714FE2740f5E3616155c5b8419).latestAnswer()); // 8 decimals
+        return getAllPoolInETH() * ETHPriceInUSD / 1e8;
+    }
+
+    function getPricePerFullShare(bool inUSD) public view returns (uint) {
+        uint _totalSupply = totalSupply();
+        if (_totalSupply == 0) return 0;
+        return inUSD == true ?
+            getAllPoolInUSD() * 1e18 / _totalSupply :
+            getAllPool() * 1e18 / _totalSupply;
     }
 
 }
