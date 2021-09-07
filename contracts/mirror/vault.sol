@@ -224,7 +224,13 @@ contract MirrorVault is Initializable, ERC20Upgradeable, OwnableUpgradeable, Pau
 
         _yield();
 
-        lpPool.withdraw(lpPool.balanceOf(address(this)));
+        uint stakedTokens = lpPool.balanceOf(address(this));
+
+        if(stakedTokens > 0 ) {
+            lpPool.withdraw(stakedTokens);
+        }
+
+        emit EmergencyWithdraw(stakedTokens);
     }
 
 
