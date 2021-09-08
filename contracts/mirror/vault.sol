@@ -131,7 +131,9 @@ contract MirrorVault is Initializable, ERC20Upgradeable, OwnableUpgradeable, Pau
         IERC20Upgradeable(mAsset).approve(address(router), type(uint).max);
         
     }
-
+    /**
+     *@param _amount amount of lptokens to deposit
+    */
     function deposit(uint _amount) external nonReentrant whenNotPaused{
         require(_amount > 0, "Invalid amount");
 
@@ -154,6 +156,9 @@ contract MirrorVault is Initializable, ERC20Upgradeable, OwnableUpgradeable, Pau
         emit Deposit(msg.sender, _amount, _shares);
     }
 
+    /**
+     *@param _shares amount of shares to burn
+    */
     function withdraw(uint _shares) external nonReentrant{
         require(_shares > 0, "Invalid Amount");
         require(balanceOf(msg.sender) >= _shares, "Not enough balance");
@@ -224,7 +229,7 @@ contract MirrorVault is Initializable, ERC20Upgradeable, OwnableUpgradeable, Pau
 
         }
     }
-
+    ///@notice Withdraws funds staked in mirror to this vault and pauses deposit, yield, invest functions
     function emergencyWithdraw() external onlyOwnerOrAdmin whenNotPaused{ 
         _pause();
 
@@ -244,7 +249,7 @@ contract MirrorVault is Initializable, ERC20Upgradeable, OwnableUpgradeable, Pau
         emit SetWhitelist(_addr, _value);
     }
 
-
+    ///@notice Unpauses deposit, yield, invest functions, and invests funds.
     function reInvest() external onlyOwnerOrAdmin whenPaused {
         _invest();
         _unpause();
@@ -256,7 +261,9 @@ contract MirrorVault is Initializable, ERC20Upgradeable, OwnableUpgradeable, Pau
 
         emit SetAdmin(oldAdmin, _newAdmin);
     }
-
+    ///@notice Function to set deposit and yield fee
+    ///@param _depositFeePerc deposit fee percentage. 1000 for 10%
+    ///@param _yieldFeePerc deposit fee percentage. 2000 for 20%
     function setFee(uint _depositFeePerc, uint _yieldFeePerc) external onlyOwnerOrAdmin{
         depositFee = _depositFeePerc;
         yieldFee = _yieldFeePerc;
@@ -301,6 +308,7 @@ contract MirrorVault is Initializable, ERC20Upgradeable, OwnableUpgradeable, Pau
 
     }
 
+    ///@notice transfers out fees from vault
     function transferFees() external onlyOwnerOrAdmin { 
         _transferFees();
     }
@@ -315,6 +323,7 @@ contract MirrorVault is Initializable, ERC20Upgradeable, OwnableUpgradeable, Pau
         _fees = 0;
     }
 
+    ///@return _pool Returns the total lp tokens in vault and staked in mirror
     function getAllPool() public view returns (uint _pool) {
         _pool = lpToken.balanceOf(address(this)) + 
             lpPool.balanceOf(address(this)) - 
@@ -329,6 +338,7 @@ contract MirrorVault is Initializable, ERC20Upgradeable, OwnableUpgradeable, Pau
         }
     }
 
+    ///@return Returns the value of lpToken in ETH (18 decimals)
     function getAllPoolInETH() public view returns (uint) {
 
         uint _pool = getAllPool();
@@ -351,7 +361,8 @@ contract MirrorVault is Initializable, ERC20Upgradeable, OwnableUpgradeable, Pau
 
         return router.getAmountsOut(valueInUST, path)[1];
     }
-
+    
+    ///@return Returns the value of lpToken in USD (8 decimals)
     function getAllPoolInUSD() public view returns (uint) {
         uint ETHPriceInUSD = uint(IChainlink(0x5f4eC3Df9cbd43714FE2740f5E3616155c5b8419).latestAnswer()); // 8 decimals
         return getAllPoolInETH() * ETHPriceInUSD / 1e8;
