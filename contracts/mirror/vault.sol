@@ -7,7 +7,7 @@ import "@openzeppelin/contracts-upgradeable/token/ERC20/utils/SafeERC20Upgradeab
 import "@openzeppelin/contracts-upgradeable/security/ReentrancyGuardUpgradeable.sol";
 import "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
 import "@openzeppelin/contracts-upgradeable/security/PausableUpgradeable.sol";
-import "hardhat/console.sol";
+
 
 interface ILpPool is IERC20Upgradeable{
     function earned(address _account) external view returns (uint);
@@ -79,6 +79,7 @@ contract MirrorVault is Initializable, ERC20Upgradeable, OwnableUpgradeable, Pau
     address private mAsset;
 
     mapping(address => bool) public isWhitelisted;
+    mapping(address => uint) private depositedBlock;
 
     event Deposit(address _user, uint _amount, uint _shares);
     event EmergencyWithdraw(uint _amount);
@@ -89,6 +90,7 @@ contract MirrorVault is Initializable, ERC20Upgradeable, OwnableUpgradeable, Pau
     event SetCommunityWallet(address _wallet);
     event SetStrategistWallet(address _wallet);
     event SetTreasuryWallet(address _wallet);
+    event SetWhitelist(address, bool);
     event Withdraw(address _user, uint _amount, uint _shares);
     event YieldFee(uint _amount);
     event Yield(uint _amount);
@@ -126,7 +128,7 @@ contract MirrorVault is Initializable, ERC20Upgradeable, OwnableUpgradeable, Pau
         lpToken.safeApprove(address(_lpPool), type(uint).max);
         Mir.safeApprove(address(router), type(uint).max);
         UST.safeApprove(address(router), type(uint).max);
-        IERC20Upgradeable(mAsset).safeApprove(address(router), type(uint).max);
+        IERC20Upgradeable(mAsset).approve(address(router), type(uint).max);
         
     }
 
@@ -143,6 +145,8 @@ contract MirrorVault is Initializable, ERC20Upgradeable, OwnableUpgradeable, Pau
             _fees += fees;
         }
 
+        depositedBlock[msg.sender] = block.number;
+
         uint _totalSupply = totalSupply();
         uint _shares = _totalSupply == 0 ? _amount : _amount * _totalSupply / _pool;
 
@@ -153,6 +157,8 @@ contract MirrorVault is Initializable, ERC20Upgradeable, OwnableUpgradeable, Pau
     function withdraw(uint _shares) external nonReentrant{
         require(_shares > 0, "Invalid Amount");
         require(balanceOf(msg.sender) >= _shares, "Not enough balance");
+        require(depositedBlock[msg.sender] != block.number, "Withdraw within same block");
+
 
         uint _amountToWithdraw = getAllPool() * _shares / totalSupply(); 
 
@@ -197,7 +203,7 @@ contract MirrorVault is Initializable, ERC20Upgradeable, OwnableUpgradeable, Pau
 
             lpPool.getReward();
 
-            uint outAmount = _swap(address(Mir), mAsset, rewardMir /2);
+            uint outAmount = mAsset != address(Mir) ? _swap(address(Mir), mAsset, rewardMir /2) : rewardMir /2;
             uint outAmount1 = _swap(address(Mir), address(UST), rewardMir /2);
 
             (,,uint lpTokenAmount) = router. addLiquidity(address(mAsset), address(UST), outAmount, outAmount1, 0, 0, address(this), block.timestamp);
@@ -231,6 +237,11 @@ contract MirrorVault is Initializable, ERC20Upgradeable, OwnableUpgradeable, Pau
         }
 
         emit EmergencyWithdraw(stakedTokens);
+    }
+
+    function setWhitelist(address _addr, bool _value) external onlyOwnerOrAdmin {
+        isWhitelisted[_addr] = _value;
+        emit SetWhitelist(_addr, _value);
     }
 
 
@@ -275,7 +286,7 @@ contract MirrorVault is Initializable, ERC20Upgradeable, OwnableUpgradeable, Pau
         if(_token1 == mAsset) { 
             address[] memory path = new address[](3);
             path[0] = _token0;
-            path[1] = address(WETH);
+            path[1] = address(UST);
             path[2] = _token1;
 
             _outAmount = router.swapExactTokensForTokens(_amount, 0, path, address(this), block.timestamp)[2];
@@ -306,7 +317,7 @@ contract MirrorVault is Initializable, ERC20Upgradeable, OwnableUpgradeable, Pau
 
     function getAllPool() public view returns (uint _pool) {
         _pool = lpToken.balanceOf(address(this)) + 
-            lpPool.balanceOf(address(this)) - //CHECK TODO
+            lpPool.balanceOf(address(this)) - 
             _fees;
     }
 
@@ -319,8 +330,6 @@ contract MirrorVault is Initializable, ERC20Upgradeable, OwnableUpgradeable, Pau
     }
 
     function getAllPoolInETH() public view returns (uint) {
-        //TODO get price of 1 uniLP token in ETH
-        //multiple getAllPool() * priceOf1 uniLP in ETH
 
         uint _pool = getAllPool();
         address[] memory path = new address[](2);
