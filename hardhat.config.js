@@ -29,11 +29,11 @@ module.exports = {
         url: process.env.ALCHEMY_URL_MAINNET,
         blockNumber: 13102860//13055980,
       },
-    }
-    // mainnet: {
-    //   url: process.env.ALCHEMY_URL_MAINNET,
-    //   accounts: [`0x${process.env.PRIVATE_KEY}`],
-    // },
+    },
+    mainnet: {
+      url: process.env.ALCHEMY_URL_MAINNET,
+      accounts: [`0x${process.env.PRIVATE_KEY}`],
+    },
     // kovan: {
     //   url: process.env.ALCHEMY_URL_KOVAN,
     //   accounts: [`0x${process.env.PRIVATE_KEY}`],
@@ -43,9 +43,9 @@ module.exports = {
     //   accounts: [`0x${process.env.PRIVATE_KEY}`],
     // },
   },
-  // etherscan: {
-  //   apiKey: process.env.ETHERSCAN_API_KEY,
-  // },
+  etherscan: {
+    apiKey: process.env.ETHERSCAN_API_KEY,
+  },
   solidity: {
     version: "0.8.7",//"0.8.7",
     settings: {
