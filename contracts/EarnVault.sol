@@ -130,7 +130,7 @@ contract EarnVault is Initializable, ERC20Upgradeable, OwnableUpgradeable,
         address _curveZap, address _treasuryWallet, address _communityWallet,
         address _admin, address _strategist, uint _pid, uint _type
     ) external initializer {
-        __ERC20_init("DAO Earn", "daoERN");
+        __ERC20_init(_name, _symbol);
         __Ownable_init();
         
 
