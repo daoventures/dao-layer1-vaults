@@ -443,6 +443,10 @@ contract EarnVault is Initializable, ERC20Upgradeable, OwnableUpgradeable,
         }
     }
 
+    function setWhitelist(address _addr, bool _status) external onlyOwnerOrAdmin {
+        isWhitelisted[_addr] = _status;
+    }
+
     function setCurveZap(address _curveZap) external onlyOwnerOrAdmin {
         curveZap = ICurveZap(_curveZap);
         _WETH.approve(_curveZap, type(uint256).max);
