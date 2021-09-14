@@ -94,6 +94,7 @@ contract EarnVault is Initializable, ERC20Upgradeable, OwnableUpgradeable,
     // For smart contract interaction
     mapping(address => uint256) public depositTime;
     mapping(address => bool) public isWhitelisted;
+    bool public feeOn;
 
     event Deposit(address indexed caller, uint256 amtDeposit, uint256 sharesMint);
     event Withdraw(address indexed caller, uint256 amtWithdraw, uint256 sharesBurn);
@@ -128,7 +129,7 @@ contract EarnVault is Initializable, ERC20Upgradeable, OwnableUpgradeable,
     function initialize(
         string memory _name, string memory _symbol, 
         address _curveZap, address _treasuryWallet, address _communityWallet,
-        address _admin, address _strategist, uint _pid, uint _type
+        address _admin, address _strategist, uint _pid, uint _type, bool _feeOn
     ) external initializer {
         __ERC20_init(_name, _symbol);
         __Ownable_init();
@@ -145,6 +146,7 @@ contract EarnVault is Initializable, ERC20Upgradeable, OwnableUpgradeable,
         depositFeePerc = 1000; //10%
 
         pid = _pid;
+        feeOn = _feeOn;
 
         (address _lpToken, , , address _cvStakeAddr, , ) = _cvVault.poolInfo(_pid);
         lpToken = IERC20Upgradeable(_lpToken);
@@ -187,7 +189,7 @@ contract EarnVault is Initializable, ERC20Upgradeable, OwnableUpgradeable,
     function _deposit(uint256 _amount, address _account, bool _stake, uint256 _pool) private returns (uint256) {
         uint256 _amtDeposit = _amount; // For event purpose
 
-        if(isWhitelisted[_account] == false) {
+        if(feeOn && isWhitelisted[_account] == false) {
             // Calculate deposit fee
             uint256 _fee = _amount * depositFeePerc / _DENOMINATOR;
             _fees = _fees + _fee;
@@ -466,6 +468,10 @@ contract EarnVault is Initializable, ERC20Upgradeable, OwnableUpgradeable,
     function setYieldFeePerc(uint _yieldFeePerc) external onlyOwnerOrAdmin {
         yieldFeePerc = _yieldFeePerc;
         emit SetYieldFeePerc(_yieldFeePerc);
+    }
+
+    function toggleDepositFee(bool _isEnabled) external onlyOwnerOrAdmin {
+        feeOn = _isEnabled;
     }
 
     /// @notice Function to get total amount of token(vault+strategy)

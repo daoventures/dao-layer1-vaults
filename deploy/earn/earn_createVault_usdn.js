@@ -21,9 +21,9 @@ module.exports = async ({ deployments }) => {
 
     let implInterfacec = new ethers.utils.Interface(implABI)
 
-    let data = implInterfacec.encodeFunctionData("initialize", [ zap.address,
+    let data = implInterfacec.encodeFunctionData("initialize", ["DAO Earn", "daoERN",zap.address,
         network_.treasury, network_.community,
-        network_.admin, network_.strategist, pid, type])
+        network_.admin, network_.strategist, pid, type, true])
     
     
     await Factory.connect(deployer).createVault(data)
