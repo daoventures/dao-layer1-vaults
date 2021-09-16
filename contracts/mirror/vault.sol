@@ -43,9 +43,8 @@ interface IUniRouter {
 
 }
 
-interface IUniPair {
+interface IUniPair is IERC20Upgradeable{
     function getReserves() external view returns (uint, uint);
-    function totalSupply() external view returns (uint);
     function token0() external view returns (address);
     function token1() external view returns (address);
 }
@@ -57,12 +56,12 @@ interface IChainlink {
 
 contract MirrorVault is Initializable, ERC20Upgradeable, OwnableUpgradeable, PausableUpgradeable, ReentrancyGuardUpgradeable{
     using SafeERC20Upgradeable for IERC20Upgradeable;
+    using SafeERC20Upgradeable for IUniPair;
 
     IERC20Upgradeable public constant Mir  = IERC20Upgradeable(0x09a3EcAFa817268f77BE1283176B946C4ff2E608);
     IERC20Upgradeable public constant WETH = IERC20Upgradeable(0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2);
     IERC20Upgradeable public constant UST = IERC20Upgradeable(0xa47c8bf37f92aBed4A126BDA807A7b7498661acD);
-    IERC20Upgradeable public lpToken;
-    IUniPair public pair;
+    IUniPair public lpToken;
     ILpPool public lpPool;
 
     IUniRouter public constant router = IUniRouter(0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D);
@@ -113,10 +112,9 @@ contract MirrorVault is Initializable, ERC20Upgradeable, OwnableUpgradeable, Pau
         depositFee = 1000; //10%
         
         lpPool = _lpPool;
-        lpToken = IERC20Upgradeable(_lpToken);
+        lpToken = IUniPair(_lpToken);
 
         require(_lpToken == lpPool.lpt(), "lptoken mismatch");
-        pair = IUniPair(_lpToken);
 
         mAsset = _mAsset;
         admin = _admin;
@@ -167,8 +165,9 @@ contract MirrorVault is Initializable, ERC20Upgradeable, OwnableUpgradeable, Pau
 
         uint _amountToWithdraw = getAllPool() * _shares / totalSupply(); 
 
-        if(lpToken.balanceOf(address(this)) - _fees < _amountToWithdraw) {
-            lpPool.withdraw(_amountToWithdraw);
+        uint lpTokenAvailable = lpToken.balanceOf(address(this)) - _fees;
+        if(lpTokenAvailable < _amountToWithdraw) {
+            lpPool.withdraw(_amountToWithdraw - lpTokenAvailable);
         }
 
         _burn(msg.sender, _shares);
@@ -264,7 +263,7 @@ contract MirrorVault is Initializable, ERC20Upgradeable, OwnableUpgradeable, Pau
     ///@notice Function to set deposit and yield fee
     ///@param _depositFeePerc deposit fee percentage. 1000 for 10%
     ///@param _yieldFeePerc deposit fee percentage. 2000 for 20%
-    function setFee(uint _depositFeePerc, uint _yieldFeePerc) external onlyOwnerOrAdmin{
+    function setFee(uint _depositFeePerc, uint _yieldFeePerc) external onlyOwner{
         depositFee = _depositFeePerc;
         yieldFee = _yieldFeePerc;
 
@@ -272,17 +271,17 @@ contract MirrorVault is Initializable, ERC20Upgradeable, OwnableUpgradeable, Pau
         emit SetYieldFeePerc(_yieldFeePerc);
     }
 
-    function setTreasuryWallet(address _wallet) external onlyOwnerOrAdmin {
+    function setTreasuryWallet(address _wallet) external onlyOwner {
         treasuryWallet = _wallet;
         emit SetTreasuryWallet(_wallet);
     }
 
-    function setCommunityWallet(address _wallet) external onlyOwnerOrAdmin {
+    function setCommunityWallet(address _wallet) external onlyOwner {
         communityWallet = _wallet;
         emit SetCommunityWallet(_wallet);
     }
 
-    function setStrategistWallet(address _wallet) external onlyOwnerOrAdmin {
+    function setStrategistWallet(address _wallet) external onlyOwner {
         strategist = _wallet;
         emit SetStrategistWallet(_wallet);
     }
@@ -331,9 +330,9 @@ contract MirrorVault is Initializable, ERC20Upgradeable, OwnableUpgradeable, Pau
     }
 
     function _getReserves() private view returns (uint _mAssetReserve, uint _ustReserve) {
-        (_mAssetReserve, _ustReserve) = pair.getReserves();
+        (_mAssetReserve, _ustReserve) = lpToken.getReserves();
          
-        if(pair.token0() != mAsset) {
+        if(lpToken.token0() != mAsset) {
             (_mAssetReserve, _ustReserve) = (_ustReserve, _mAssetReserve);
         }
     }
@@ -350,7 +349,7 @@ contract MirrorVault is Initializable, ERC20Upgradeable, OwnableUpgradeable, Pau
 
         (uint reservemAsset, uint reserveUST) = _getReserves();
 
-        uint _totalSupply = pair.totalSupply();
+        uint _totalSupply = lpToken.totalSupply();
         uint totalmAsset = _pool * reservemAsset / _totalSupply;
         uint totalUST = _pool * reserveUST / _totalSupply;
 
@@ -359,7 +358,7 @@ contract MirrorVault is Initializable, ERC20Upgradeable, OwnableUpgradeable, Pau
         path[0] = address(UST);
         path[1] = address(WETH);
 
-        return router.getAmountsOut(valueInUST, path)[1];
+        return router.getAmountsOut(1e18, path)[1] * valueInUST;
     }
     
     ///@return Returns the value of lpToken in USD (8 decimals)
