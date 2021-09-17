@@ -15,17 +15,17 @@ module.exports = async ({ deployments }) => {
 
 
     let implInterfacec = new ethers.utils.Interface(implABI)
-    let data = implInterfacec.encodeFunctionData("initialize", ["DAOVaultETHUSDC", "daoETHUSDC",
-        network_.PID.BTCB_ETH,
+    let data = implInterfacec.encodeFunctionData("initialize", ["DAO L1 pnck btcb-busd", "daopnckBTCB_BUSD",
+        network_.PID.BTCB_BUSD, 
         network_.ADDRESSES.treasuryWallet, network_.ADDRESSES.communityWallet, network_.ADDRESSES.strategist, network_.ADDRESSES.adminAddress])
 
     await Factory.connect(deployer).createVault(data)
     const vaultProxyAddress = await Factory.getVault((await Factory.totalVaults()).toNumber() - 1)
 
-    console.log("BTCB-ETH Proxy :", vaultProxyAddress);
+    console.log("BTCB-BUSD Proxy :", vaultProxyAddress);
 
 
 };
 
-module.exports.tags = ["bsc_mainnet_deploy_pool_btcb_eth"];
+module.exports.tags = ["bsc_mainnet_deploy_pool_btcb_busd"];
 module.exports.dependencies = ["bsc_mainnet_deploy_factory"]

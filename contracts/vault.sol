@@ -51,12 +51,12 @@ interface IChainlink {
     function latestAnswer() external view returns (int256);
 }
 
-contract MirrorVault is Initializable, ERC20Upgradeable, OwnableUpgradeable, PausableUpgradeable, ReentrancyGuardUpgradeable{
+contract BscVault is Initializable, ERC20Upgradeable, OwnableUpgradeable, PausableUpgradeable, ReentrancyGuardUpgradeable{
     using SafeERC20Upgradeable for IERC20Upgradeable;
 
     using SafeERC20Upgradeable for IUniPair;
 
-    IERC20Upgradeable public constant CAKE  = IERC20Upgradeable(0x09a3EcAFa817268f77BE1283176B946C4ff2E608);
+    IERC20Upgradeable public constant CAKE  = IERC20Upgradeable(0x0E09FaBB73Bd3Ade0a17ECC321fD13a19e81cE82);
     IERC20Upgradeable public constant WBNB = IERC20Upgradeable(0xbb4CdB9CBd36B01bD1cBaEBF2De08d9173bc095c);
     IERC20Upgradeable public constant BNB = IERC20Upgradeable(0xa47c8bf37f92aBed4A126BDA807A7b7498661acD);
     IERC20Upgradeable public token0;
@@ -103,7 +103,6 @@ contract MirrorVault is Initializable, ERC20Upgradeable, OwnableUpgradeable, Pau
     }
 
 
-    //BTCB-ETH - 0xD171B26E4484402de70e3Ea256bE5A2630d7e88D
     function initialize(string memory _name, string memory _symbol, 
         uint _pid,
         address _treasury, address _communityWallet, address _strategist, address _admin
@@ -116,24 +115,23 @@ contract MirrorVault is Initializable, ERC20Upgradeable, OwnableUpgradeable, Pau
         yieldFee = 2000; //20%
         depositFee = 1000; //10%
         pid = _pid;
-        
+
         (address _lpToken,,,) = MasterChef.poolInfo(_pid);
 
         lpToken = IUniPair(_lpToken);
         token0 = IERC20Upgradeable(lpToken.token0());
         token1 = IERC20Upgradeable(lpToken.token1());
-
+        
         treasuryWallet = _treasury;
         communityWallet = _communityWallet;
         strategist = _strategist;
         admin = _admin;
-
+        
         lpToken.safeApprove(address(MasterChef), type(uint).max);
         CAKE.safeApprove(address(PckRouter), type(uint).max);
-        token0.safeApprove(address(PckRouter), type(uint).max);
-        token1.safeApprove(address(PckRouter), type(uint).max);
-        
-        // IERC20Upgradeable(mAsset).approve(address(PckRouter), type(uint).max);
+        token0.approve(address(PckRouter), type(uint).max);
+        token1.approve(address(PckRouter), type(uint).max);
+    
     }
     
     /**
@@ -185,7 +183,7 @@ contract MirrorVault is Initializable, ERC20Upgradeable, OwnableUpgradeable, Pau
         
     }
 
-    function invest() external onlyOwnerOrAdmin {
+    function invest() external onlyOwnerOrAdmin whenNotPaused{
         transferFees();
         uint _amt = _invest();
 
@@ -193,7 +191,7 @@ contract MirrorVault is Initializable, ERC20Upgradeable, OwnableUpgradeable, Pau
     }
 
     function _invest() private returns (uint available){
-        available = lpToken.balanceOf(address(this));
+        available = lpToken.balanceOf(address(this)) - _fees;
         if(available > 0) {
             MasterChef.deposit(pid, available);
         }
@@ -263,27 +261,27 @@ contract MirrorVault is Initializable, ERC20Upgradeable, OwnableUpgradeable, Pau
         emit SetStrategistWallet(_wallet);
     }
 
-    function yield() external onlyOwnerOrAdmin {
+    function yield() external onlyOwnerOrAdmin whenNotPaused {
         _yield();
     }
 
     function _yield() private {
         uint cakeBalance = CAKE.balanceOf(address(this));
-
+        
         if(cakeBalance > 0) {
-            uint _token0Amount = _swap(address(CAKE), address(token0), cakeBalance/2)[1];
-            uint _token1Amount = _swap(address(CAKE), address(token1), cakeBalance/2)[1];
+            uint _token0Amount = token0 == CAKE ? cakeBalance /2 : _swap(address(CAKE), address(token0), cakeBalance/2)[1];
+            uint _token1Amount = token1 == CAKE ? cakeBalance /2 :  _swap(address(CAKE), address(token1), cakeBalance/2)[1];
 
             (,,uint lpTokens) = PckRouter.addLiquidity(address(token0), address(token1), _token0Amount, _token1Amount, 0, 0, address(this), block.timestamp);
 
             uint fee = lpTokens * yieldFee / DENOMINATOR; //yield fee
             _fees += fee;
 
-            MasterChef.deposit(pid, lpTokens - fee);
+            _invest();
 
             address[] memory path = new address[](2);
             path[0] = address(CAKE);
-            path[0] = address(WBNB);
+            path[1] = address(WBNB);
 
             uint priceInBNB = PckRouter.getAmountsOut(1e18, path)[1];
 
@@ -293,7 +291,7 @@ contract MirrorVault is Initializable, ERC20Upgradeable, OwnableUpgradeable, Pau
     }
 
     function _swap(address _tokenA, address _tokenB, uint _amt) private returns (uint[] memory amounts){
-        address[] memory path;
+        address[] memory path = new address[](2);
 
         path[0] = address(_tokenA);
         path[1] = address(_tokenB);

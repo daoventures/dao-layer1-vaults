@@ -3,15 +3,15 @@ const { ethers, deployments, network } = require('hardhat')
 const { mainnet: addresses } = require('../../addresses/bsc')
 const IERC20_ABI = require("../../abis/IERC20_ABI.json")
 
-const unlockedAddress = "0x8cc7bc33f5188b1fb683bedc4dbffa77b136833b"
-const unlockedAddress2 = "0x07d80ae6f36a5e08dca74ce884a24d39db9934ed"
+const unlockedAddress = "0xb1b9b4bbe8a92d535f5df2368e7fd2ecfb3a1950"
+const unlockedAddress2 = "0x7762463cb6cc85fef363bce4d24fa2786500bdae"
 
 
-describe("BSC - BTCB-ETH", () => {
+describe("BSC - ALPACA-BUSD", () => {
     const setup = async () => {
         const [deployer, user1, user2, topup] = await ethers.getSigners()
 
-        const lpToken = new ethers.Contract(addresses.LPTOKENS.BTCB_ETH, IERC20_ABI, deployer)
+        const lpToken = new ethers.Contract(addresses.LPTOKENS.ALPACA_BUSD, IERC20_ABI, deployer)
 
         await topup.sendTransaction({ to: addresses.ADDRESSES.adminAddress, value: ethers.utils.parseEther("2") })
         await topup.sendTransaction({ to: unlockedAddress, value: ethers.utils.parseEther("2") })
@@ -55,7 +55,7 @@ describe("BSC - BTCB-ETH", () => {
     }
 
     beforeEach(async () => {
-        await deployments.fixture(["bsc_mainnet_deploy_pool_btcb_eth"])
+        await deployments.fixture(["bsc_mainnet_deploy_pool_alpaca_busd"])
     })
 
 
