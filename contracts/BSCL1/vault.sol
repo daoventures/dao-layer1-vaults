@@ -7,7 +7,7 @@ import "@openzeppelin/contracts-upgradeable/token/ERC20/utils/SafeERC20Upgradeab
 import "@openzeppelin/contracts-upgradeable/security/ReentrancyGuardUpgradeable.sol";
 import "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
 import "@openzeppelin/contracts-upgradeable/security/PausableUpgradeable.sol";
-import "hardhat/console.sol";
+
 interface IUniRouter {
     function swapExactTokensForTokens(
         uint amountIn,
@@ -58,7 +58,6 @@ contract BscVault is Initializable, ERC20Upgradeable, OwnableUpgradeable, Pausab
 
     IERC20Upgradeable public constant CAKE  = IERC20Upgradeable(0x0E09FaBB73Bd3Ade0a17ECC321fD13a19e81cE82);
     IERC20Upgradeable public constant WBNB = IERC20Upgradeable(0xbb4CdB9CBd36B01bD1cBaEBF2De08d9173bc095c);
-    IERC20Upgradeable public constant BNB = IERC20Upgradeable(0xa47c8bf37f92aBed4A126BDA807A7b7498661acD);
     IERC20Upgradeable public token0;
     IERC20Upgradeable public token1;
     IUniPair public lpToken;
@@ -324,7 +323,7 @@ contract BscVault is Initializable, ERC20Upgradeable, OwnableUpgradeable, Pausab
         
         uint _total0 = _pool * _reserve0 / _totalSupply;
         uint _total1 = _pool * _reserve1 / _totalSupply;
-        console.log(_total0, _total1);
+        
         _valueInBNB = (_total0 * _getPriceInBNB(address(token0))) + 
         (_total1 * _getPriceInBNB(address(token1))) ;
 
