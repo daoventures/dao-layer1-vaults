@@ -7,7 +7,7 @@ import "@openzeppelin/contracts-upgradeable/token/ERC20/utils/SafeERC20Upgradeab
 import "@openzeppelin/contracts-upgradeable/security/ReentrancyGuardUpgradeable.sol";
 import "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
 import "@openzeppelin/contracts-upgradeable/security/PausableUpgradeable.sol";
-
+import "hardhat/console.sol";
 interface IUniRouter {
     function swapExactTokensForTokens(
         uint amountIn,
@@ -315,4 +315,46 @@ contract BscVault is Initializable, ERC20Upgradeable, OwnableUpgradeable, Pausab
         (uint stakedTokens,) = MasterChef.userInfo(pid, address(this));
         return lpToken.balanceOf(address(this)) + stakedTokens - _fees;
     }
+
+    function getAllPoolInBNB() public view returns (uint _valueInBNB) {
+        uint _pool = getAllPool();
+        uint _totalSupply = lpToken.totalSupply();
+
+        (uint _reserve0, uint _reserve1) = lpToken.getReserves();
+        
+        uint _total0 = _pool * _reserve0 / _totalSupply;
+        uint _total1 = _pool * _reserve1 / _totalSupply;
+        console.log(_total0, _total1);
+        _valueInBNB = (_total0 * _getPriceInBNB(address(token0))) + 
+        (_total1 * _getPriceInBNB(address(token1))) ;
+
+        _valueInBNB = _valueInBNB / 1e18;
+
+    }
+
+    function _getPriceInBNB(address _token) private view returns (uint) {
+        if(_token == address(WBNB)) {
+            return 1e18;
+        } else {
+            address[] memory path = new address[](2);
+
+            path[0] = _token;
+            path[1] = address(WBNB);
+            return PckRouter.getAmountsOut(1e18, path)[1];
+        }
+    }
+
+    function getAllPoolInUSD() public view returns (uint) {
+        uint BNBPriceInUSD = uint(IChainlink(0x0567F2323251f0Aab15c8dFb1967E4e8A7D42aeE).latestAnswer()); // 8 decimals
+        return getAllPoolInBNB() * BNBPriceInUSD / 1e8;
+    }
+
+    function getPricePerFullShare(bool inUSD) public view returns (uint) {
+        uint _totalSupply = totalSupply();
+        if (_totalSupply == 0) return 0;
+        return inUSD == true ?
+            getAllPoolInUSD() * 1e18 / _totalSupply :
+            getAllPool() * 1e18 / _totalSupply;
+    }
+
 }

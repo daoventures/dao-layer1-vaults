@@ -239,4 +239,21 @@ describe("BSC - USDC_CHESS", () => {
         expect(valueInPool).to.eq(await vault.getAllPool())
 
     })
+
+    it('Prints view functions', async () => {
+        const { vault, lpToken, user1, user2, adminSigner, deployer, Factory } = await setup()
+
+        let user1Balance = await lpToken.balanceOf(user1.address)
+        let user2Balance = await lpToken.balanceOf(user2.address)
+
+        await vault.connect(user1).deposit(user1Balance)
+        await vault.connect(adminSigner).invest()
+        await vault.connect(user2).deposit(user2Balance)
+
+        console.log("getAllPool", (await vault.getAllPool()).toString())
+        console.log("getAllPoolInBNB", (await vault.getAllPoolInBNB()).toString())
+        console.log("getAllPoolInUSD", (await vault.getAllPoolInUSD()).toString())
+        console.log("getPricePerFullShare - in USD", (await vault.getPricePerFullShare(true)).toString())
+        console.log("getPricePerFullShare", (await vault.getPricePerFullShare(false)).toString())
+    })
 })
