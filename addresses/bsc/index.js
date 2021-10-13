@@ -13,9 +13,9 @@ module.exports = {
         },
 
         ADDRESSES: {
-            communityWallet: "0xdd6c35aFF646B2fB7d8A8955Ccbe0994409348d0",
-            strategist: "0x54D003d451c973AD7693F825D5b78Adfc0efe934",
-            treasuryWallet: "0x59E83877bD248cBFe392dbB5A8a29959bcb48592",
+            communityWallet: "0xfd43FdB432B485094FC0a53b4B6e3D32686A273a",
+            strategist: "0x743de13981A93d2604B73Ae2EAE62449700c44Bc",
+            treasuryWallet: "0xD9a98f578b4c99ba4a897E1f44d4Cc3dFcaA6247",
             adminAddress: "0x3f68A3c1023d736D8Be867CA49Cb18c543373B99",
         },
 
