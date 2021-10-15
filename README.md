@@ -35,3 +35,4 @@ npx hardhat deploy --network mainnet --tags bsc_verify
 |    CAKE_BNB                    | [0x97511560b4f6239C717B3bB47A4227Ba7691E33c](https://bscscan.com/address/0x97511560b4f6239C717B3bB47A4227Ba7691E33c)
 |    BTCD_BUSD                   | [0x204DD790bA0D7990246D32e59C30fcB01acc224C](https://bscscan.com/address/0x204DD790bA0D7990246D32e59C30fcB01acc224C)
 |    USDC_CHESS                  | [0xae4566AA6271F066A085aF605691629BFB8182f9](https://bscscan.com/address/0xae4566AA6271F066A085aF605691629BFB8182f9)
+|    BNB_XVS                     | [0x5633112d760953c4b418e25f46D4b2ABb3FB1B48](https://bscscan.com/address/0x5633112d760953c4b418e25f46D4b2ABb3FB1B48)
