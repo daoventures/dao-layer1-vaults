@@ -33,3 +33,4 @@ npx hardhat deploy --network mainnet --tags bsc_verify
 |    BTCB_ETH                    | [0xcB2dbBE8bD45F7b2aCDe811971DA2f64f1Bfa6CB](https://bscscan.com/address/0xcB2dbBE8bD45F7b2aCDe811971DA2f64f1Bfa6CB)
 |    BTCB_BNB                    | [0x643E7A44F5d3F3A0939eCfe464a277DCAcB5BaB3](https://bscscan.com/address/0x643E7A44F5d3F3A0939eCfe464a277DCAcB5BaB3)
 |    CAKE_BNB                    | [0x97511560b4f6239C717B3bB47A4227Ba7691E33c](https://bscscan.com/address/0x97511560b4f6239C717B3bB47A4227Ba7691E33c)
+|    BTCD_BUSD                   | [0x204DD790bA0D7990246D32e59C30fcB01acc224C](https://bscscan.com/address/0x204DD790bA0D7990246D32e59C30fcB01acc224C)
