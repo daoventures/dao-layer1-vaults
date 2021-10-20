@@ -31,7 +31,7 @@ npx hardhat deploy --network mainnet --tags bsc_verify
 |    Factory                     | [0x68b7b9D45D70496b9C0e449AD82c4Fda3ad8AfD5](https://bscscan.com/address/0x68b7b9D45D70496b9C0e449AD82c4Fda3ad8AfD5)
 |    Implemenation               | [0xE0245d079295246e570894ec6014713ED276efF3](https://bscscan.com/address/0xE0245d079295246e570894ec6014713ED276efF3)
 |    BTCB_ETH                    | [0xcB2dbBE8bD45F7b2aCDe811971DA2f64f1Bfa6CB](https://bscscan.com/address/0xcB2dbBE8bD45F7b2aCDe811971DA2f64f1Bfa6CB)
-|    BTCB_BNB                    | [0x643E7A44F5d3F3A0939eCfe464a277DCAcB5BaB3](https://bscscan.com/address/0x643E7A44F5d3F3A0939eCfe464a277DCAcB5BaB3)
+|    BTCB_BNB                    | [0xDB05ab97d695F6d881130aEed5B5C66186144bd8](https://bscscan.com/address/0xDB05ab97d695F6d881130aEed5B5C66186144bd8)
 |    CAKE_BNB                    | [0x97511560b4f6239C717B3bB47A4227Ba7691E33c](https://bscscan.com/address/0x97511560b4f6239C717B3bB47A4227Ba7691E33c)
 |    BTCD_BUSD                   | [0x204DD790bA0D7990246D32e59C30fcB01acc224C](https://bscscan.com/address/0x204DD790bA0D7990246D32e59C30fcB01acc224C)
 |    USDC_CHESS                  | [0xae4566AA6271F066A085aF605691629BFB8182f9](https://bscscan.com/address/0xae4566AA6271F066A085aF605691629BFB8182f9)
